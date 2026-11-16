@@ -1,0 +1,232 @@
+{
+  "popular": {
+    "type": "COMMUNE",
+    "id": "6a5ac0d8-05bc-45b2-8e52-6fd9d7f8bf52",
+    "name": "Popular",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "santa-cruz": {
+    "type": "COMMUNE",
+    "id": "8c0768d8-7696-4cc3-995e-c1fe68c3744c",
+    "name": "Santa cruz",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "manrique": {
+    "type": "COMMUNE",
+    "id": "0d3a273b-4bf1-4cba-a6a1-28ee45e4a82b",
+    "name": "Manrique",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "aranjuez": {
+    "type": "COMMUNE",
+    "id": "44265238-5ea4-41fd-9c9e-2e59f32dd737",
+    "name": "Aranjuez",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "castilla": {
+    "type": "COMMUNE",
+    "id": "9bcc5b9d-5e06-4e92-be64-84a8aab3e610",
+    "name": "Castilla",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "doce-de-octubre": {
+    "type": "COMMUNE",
+    "id": "c65c691b-6b25-467c-bfed-51206a910f7b",
+    "name": "Doce de octubre",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "robledo": {
+    "type": "NEIGHBOURHOOD",
+    "id": "15071e97-b162-4765-b742-1bdd50d890b0",
+    "name": "Robledo",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    },
+    "city": [
+      {
+        "name": "Medellín",
+        "id": "183f0a11-9452-4160-9089-1b0e7ed45863",
+        "slug": "city-colombia-05-001"
+      }
+    ],
+    "slug": [
+      "commune-colombia-medellin-001-05-07"
+    ]
+  },
+  "villa-hermosa": {
+    "type": "COMMUNE",
+    "id": "9eb265f6-888e-4c59-8c50-a4aa51b6b9ff",
+    "name": "Villa hermosa",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "buenos-aires": {
+    "type": "COMMUNE",
+    "id": "7450cc18-0738-4238-ba68-9446fa1ea9a4",
+    "name": "Buenos aires",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "la-candelaria": {
+    "type": "COMMUNE",
+    "id": "df1cd81d-dacb-433a-9c87-590ebe1d0963",
+    "name": "La candelaria",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "laureles": {
+    "type": "NEIGHBOURHOOD",
+    "id": "589be60b-fe24-49e8-8c42-78a911b0f70e",
+    "name": "Laureles",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    },
+    "city": [
+      {
+        "name": "Medellín",
+        "id": "183f0a11-9452-4160-9089-1b0e7ed45863",
+        "slug": "city-colombia-05-001"
+      }
+    ],
+    "slug": [
+      "neighbourhood-medellin-05-laureles"
+    ]
+  },
+  "estadio": {
+    "type": "NEIGHBOURHOOD",
+    "id": "5a8e4295-e1cf-4c8b-bb02-2584a4dce516",
+    "name": "Estadio",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    },
+    "city": [
+      {
+        "name": "Medellín",
+        "id": "183f0a11-9452-4160-9089-1b0e7ed45863",
+        "slug": "city-colombia-05-001"
+      }
+    ],
+    "slug": [
+      "neighbourhood-colombia-05-001-001104"
+    ]
+  },
+  "la-america": {
+    "type": "NEIGHBOURHOOD",
+    "id": "3b4254c0-6fe0-42dc-994b-2cff1eea133f",
+    "name": "La america",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    },
+    "city": [
+      {
+        "name": "Medellín",
+        "id": "183f0a11-9452-4160-9089-1b0e7ed45863",
+        "slug": "city-colombia-05-001"
+      }
+    ],
+    "slug": [
+      "neighbourhood-colombia-05-001-001207"
+    ]
+  },
+  "san-javier": {
+    "type": "COMMUNE",
+    "id": "097c8a38-0887-479b-8ef8-0cdf403d7eae",
+    "name": "San javier",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "el-poblado": {
+    "type": "NEIGHBOURHOOD",
+    "id": "414e6890-d355-4c5f-8df1-979dddae8634",
+    "name": "El Poblado",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    },
+    "city": [
+      {
+        "name": "Medellín",
+        "id": "183f0a11-9452-4160-9089-1b0e7ed45863",
+        "slug": "city-colombia-05-001"
+      }
+    ],
+    "slug": [
+      "neighbourhood-colombia-05-001-001412"
+    ]
+  },
+  "guayabal": {
+    "type": "COMMUNE",
+    "id": "a8bf26a9-0243-4fbe-9f86-75e74201b004",
+    "name": "Guayabal",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    }
+  },
+  "belen": {
+    "type": "NEIGHBOURHOOD",
+    "id": "57795301-6f9e-4bf1-b9b7-0e73411706ad",
+    "name": "Belén",
+    "estate": {
+      "name": "Antioquia",
+      "id": "2d63ee80-421b-488f-992a-0e07a3264c3e",
+      "slug": "state-colombia-05-antioquia"
+    },
+    "city": [
+      {
+        "name": "Medellín",
+        "id": "183f0a11-9452-4160-9089-1b0e7ed45863",
+        "slug": "city-colombia-05-001"
+      }
+    ],
+    "slug": [
+      "neighbourhood-medellin-05-belen"
+    ]
+  }
+}

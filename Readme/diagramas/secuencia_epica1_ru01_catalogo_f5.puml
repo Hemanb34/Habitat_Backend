@@ -1,0 +1,147 @@
+@startuml
+title <b>Diagrama de Secuencia UML 2.5 — Épica 1 (RU-01): Exploración de Oferta para Arrendatarios</b>\n<i>Escenario: Consulta Asíncrona del Catálogo Consolidado, Clasificación "Mejor Oferta" y Redirección Original (HU-01 — MVP F5)</i>
+autonumber "<b>[00]"
+scale max 3200 width
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 240
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+
+skinparam sequence {
+  ArrowColor #1E293B
+  ArrowFontColor #0F172A
+  ArrowFontSize 11
+  ArrowThickness 1.4
+  LifeLineBorderColor #475569
+  LifeLineBackgroundColor #F8FAFC
+  ActivationBorderColor #1D4ED8
+  ActivationBackgroundColor #DBEAFE
+  GroupBorderColor #334155
+  GroupBackgroundColor #F1F5F9
+  GroupHeaderFontColor #0F172A
+  GroupFontSize 12
+  DividerBackgroundColor #E2E8F0
+  DividerBorderColor #64748B
+}
+
+skinparam participant {
+  FontName "Segoe UI"
+  FontSize 12
+  FontStyle bold
+  BorderThickness 1.5
+}
+
+actor "Arrendatario" as Actor #DBEAFE
+
+box "Subsistema FRONTEND (React SPA)" #F0F7FF
+  boundary ":CatalogoUI\n(Arrendatario.tsx / client.ts)" as UI #DCEEFB
+end box
+
+box "Subsistema BACKEND PRINCIPAL (FastAPI :8000 — Arquitectura BCE)" #F2FBF4
+  boundary ":CatalogRouter\n(catalog_router.py)" as Router #DCFCE7
+  control ":BusquedaControl\n(busqueda_control.py)" as Ctrl #DCFCE7
+  entity ":PropertyRepository\n(property_repository.py)" as Repo #DCFCE7
+  entity ":Inmueble\n(property_entity.py)" as Entity #DCFCE7
+end box
+
+box "DATOS (PostgreSQL :5432)" #FAF5FF
+  database ":habita_db\n(Tabla properties)" as DB #E9D8FD
+end box
+
+box "INTEGRACIONES EXTERNAS" #FFFBEB
+  participant ":PortalesExternos\n(Finca Raíz / Metrocuadrado / CienCuadras)" as Ext #FEF3C7
+end box
+
+== Fase 1: Solicitud Asíncrona de Catálogo y Filtrado Dinámico Sin Recarga (RF-01, RNF-06) ==
+
+Actor -> UI : seleccionarFiltros(comuna, tipo_inmueble, ordenar_por="mejor-oferta")
+activate UI
+
+UI -> Router : fetchCatalogProperties()\nGET /api/v1/properties?comuna=...&tipo_inmueble=...&ordenar_por=mejor-oferta
+activate Router
+
+Router -> Ctrl : consultar_catalogo(comuna, tipo_inmueble, ordenar_por, limit=60, offset=0)
+activate Ctrl
+
+Ctrl -> Repo : listar_catalogo(comuna, tipo_inmueble, ordenar_por, limit, offset)
+activate Repo
+
+opt Filtros activos [comuna != None || tipo_inmueble != None]
+  Repo -> Repo : aplicarFiltrosSQL(Inmueble.comuna == comuna, Inmueble.tipo_inmueble == tipo_inmueble)
+end
+
+alt Flujo Principal y Alternativo de Consulta [Conexión exitosa con PostgreSQL (<= 2s RNF-04)]
+
+  Repo -> DB : SELECT * FROM properties WHERE url_origen != '' ORDER BY (precio_publicado - precio_estimado)/precio_estimado ASC LIMIT 60
+  activate DB
+  DB --> Repo : rows (lista de registros indexados) + total_count
+  deactivate DB
+
+  Repo --> Ctrl : (entidades: list[Inmueble], total: int)
+  deactivate Repo
+
+  Ctrl -> Repo : obtener_filtros_disponibles()
+  activate Repo
+  Repo -> DB : SELECT DISTINCT comuna, tipo_inmueble FROM properties
+  activate DB
+  DB --> Repo : comunas_disponibles, tipos_disponibles
+  deactivate DB
+  Repo --> Ctrl : (comunas_disponibles, tipos_disponibles)
+  deactivate Repo
+
+  alt Flujo Principal [Inmuebles encontrados (total > 0)]
+
+    loop Por cada entidad inm en entidades [Cálculo de Indicador "Mejor Oferta" (RF-02)]
+      Ctrl -> Entity : diferencia_porcentual_oferta()
+      activate Entity
+      Entity --> Ctrl : diferencia_pct = ((precio_publicado - precio_estimado) / precio_estimado) * 100
+      deactivate Entity
+
+      Ctrl -> Entity : etiqueta_calidad_oferta()
+      activate Entity
+      Entity --> Ctrl : etiqueta_oferta ("Excelente oferta" | "Buen precio" | "Precio de mercado" | "Sobreprecio")
+      deactivate Entity
+    end
+
+    Ctrl --> Router : CatalogResponseSchema(total, comunas_disponibles, tipos_disponibles, items)
+    Router --> UI : HTTP 200 OK (JSON CatalogResponse — tiempo <= 2s RNF-04)
+    UI --> Actor : actualizarTarjetasDOMSinRecarga(items, etiquetas Mejor Oferta RF-02, RNF-06)
+
+    == Fase 2: Inspección de Detalle y Redirección al Portal Inmobiliario Original (RF-12, RN-06) ==
+
+    opt Arrendatario abre detalle e interactúa con enlace original [selected.url_origen válida (RN-06)]
+      Actor -> UI : clicBoton("Ir a la oferta original", selected.url_origen)
+      UI -> Ext : window.open(selected.url_origen, "_blank", "noopener,noreferrer")
+      activate Ext
+      Ext --> Actor : Muestra publicación original en nueva pestaña del navegador (RF-12)
+      deactivate Ext
+    end
+
+  else Flujo Alternativo A1 [Búsqueda sin coincidencias (total == 0)]
+
+    Ctrl --> Router : CatalogResponseSchema(total=0, comunas_disponibles, tipos_disponibles, items=[])
+    Router --> UI : HTTP 200 OK (JSON con items=[])
+    UI --> Actor : mostrarEstadoVacio("No se encontraron inmuebles con estos filtros") + botonLimpiarFiltros()
+
+  end
+
+else Flujo de Excepción E1 [Error de conexión o Timeout en Base de Datos PostgreSQL]
+
+  Repo -> DB : SELECT * FROM properties ...
+  activate DB
+  DB --x Repo : OperationalError / TimeoutError
+  deactivate DB
+  Repo --x Ctrl : DatabaseException
+  deactivate Ctrl
+  Router --> UI : HTTP 500 / 503 Service Unavailable (detail="Error al consultar el catálogo")
+  deactivate Router
+  UI --> Actor : mostrarBannerError("No fue posible cargar el catálogo. Intenta nuevamente.")
+  deactivate UI
+
+end
+
+@enduml

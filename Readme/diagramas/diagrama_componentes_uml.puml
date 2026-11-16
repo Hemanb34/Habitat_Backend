@@ -1,0 +1,207 @@
+@startuml
+title <b>Diagrama de Componentes UML 2.5</b>\n<i>Sistema de Búsqueda y Estimación Inmobiliaria — Habita (MVP)</i>
+left to right direction
+scale max 3400 width
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam componentStyle uml2
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 34
+skinparam ranksep 65
+skinparam padding 6
+skinparam linetype ortho
+
+hide <<PkgFE>> stereotype
+hide <<PkgBE>> stereotype
+hide <<PkgML>> stereotype
+hide <<PkgDB>> stereotype
+hide <<PkgEXT>> stereotype
+
+skinparam rectangle {
+  FontName "Segoe UI"
+  FontSize 14
+  FontStyle bold
+  BorderThickness 2
+  BackgroundColor<<PkgFE>> #F0F7FF
+  BorderColor<<PkgFE>> #2B6CB0
+  FontColor<<PkgFE>> #1D4ED8
+
+  BackgroundColor<<PkgBE>> #F2FBF4
+  BorderColor<<PkgBE>> #2F855A
+  FontColor<<PkgBE>> #15803D
+
+  BackgroundColor<<PkgML>> #F0FDFA
+  BorderColor<<PkgML>> #0F766E
+  FontColor<<PkgML>> #0F766E
+  BorderStyle<<PkgML>> dashed
+
+  BackgroundColor<<PkgDB>> #FAF5FF
+  BorderColor<<PkgDB>> #6B46C1
+  FontColor<<PkgDB>> #6B21A8
+  BorderStyle<<PkgDB>> dashed
+
+  BackgroundColor<<PkgEXT>> #FFFBEB
+  BorderColor<<PkgEXT>> #B7791F
+  FontColor<<PkgEXT>> #92400E
+  BorderStyle<<PkgEXT>> dashed
+}
+
+skinparam component {
+  FontName "Segoe UI"
+  FontSize 12
+  FontStyle bold
+  BorderThickness 1.5
+  StereotypeFontName "Segoe UI"
+  StereotypeFontSize 11
+  StereotypeFontStyle italic
+}
+
+skinparam interface {
+  BackgroundColor #86EFAC
+  BorderColor #166534
+  FontName "Segoe UI"
+  FontSize 11
+  FontColor #1E293B
+}
+
+skinparam Arrow {
+  Color #334155
+  FontColor #1E293B
+  FontSize 11
+  Thickness 1.4
+}
+
+' ============================================================================
+' 1. FRONTEND (Clientes SPA)
+' ============================================================================
+rectangle "FRONTEND (Clientes SPA — React / TypeScript)" <<PkgFE>> as PKG_FE {
+  component "Portal Web Arrendatarios\n(CatalogoUI — F5)" as FE_Arrendatario <<component>> #DCEEFB;line:2B6CB0
+  component "Portal Web Propietarios\n(CalculadoraUI & PanelPropietarioUI — F6, F4)" as FE_Propietario <<component>> #DCEEFB;line:2B6CB0
+  component "Consola Web Administrativa\n(LoginAdminUI & PanelAdminUI — F7, F1, F2, F3)" as FE_Admin <<component>> #DCEEFB;line:2B6CB0
+
+  FE_Arrendatario -[hidden]right- FE_Propietario
+  FE_Propietario  -[hidden]right- FE_Admin
+}
+
+' ============================================================================
+' 2. BACKEND (Servicios de Negocio y Orquestación)
+' ============================================================================
+rectangle "BACKEND (Servicios de Negocio y Orquestación — FastAPI)" <<PkgBE>> as PKG_BE {
+
+  component "API REST Gateway\n(Routers Boundary:\nCatalog, Valuation, Auth, Admin)" as BE_Gateway <<component>> #DCFCE7;line:2F855A
+  interface "API REST\n(Interna)" as I_API_Interna #86EFAC;line:166534
+
+  component "Servicio de Autenticación\n(AutenticacionControl — F7)" as BE_Auth <<component>> #DCFCE7;line:2F855A
+  interface "IAutenticacion" as I_Auth #86EFAC;line:166534
+
+  component "Servicio de Análisis Competitivo y Márgenes\n(AnalisisCompetitivoControl & GoF Strategy — F4)" as BE_Margen <<component>> #DCFCE7;line:2F855A
+  interface "IMargenComercial" as I_Margen #86EFAC;line:166534
+
+  component "Servicio de Búsqueda y Catálogo\n(BusquedaControl — F5)" as BE_Catalogo <<component>> #DCFCE7;line:2F855A
+  interface "ICatalogo" as I_Catalogo #86EFAC;line:166534
+
+  component "Fachada de Estimación Inmobiliaria\n(PropertyValuationFacade — GoF Facade — F6)" as BE_Estimacion <<component>> #DCFCE7;line:2F855A
+  interface "IEstimacion" as I_Estimacion #86EFAC;line:166534
+
+  component "Orquestador Administrativo y Dashboard\n(AdminOrchestratorControl — F1, F2, F3)" as BE_AdminOrch <<component>> #DCFCE7;line:2F855A
+  interface "IGobernanzaAdmin" as I_Gobernanza #86EFAC;line:166534
+
+  component "Motor de Ingesta y Crawlers\n(CrawlerFactory & Adapters — F1)" as BE_Crawlers <<component>> #DCFCE7;line:2F855A
+  interface "IIngestaCrawlers" as I_Crawlers #86EFAC;line:166534
+
+  ' Orden vertical limpio de arriba hacia abajo para evitar cruces de líneas
+  BE_Auth       -[hidden]right- BE_Margen
+  BE_Margen     -[hidden]right- BE_Catalogo
+  BE_Catalogo   -[hidden]right- BE_Estimacion
+  BE_Estimacion -[hidden]right- BE_AdminOrch
+  BE_AdminOrch  -[hidden]right- BE_Crawlers
+}
+
+' ============================================================================
+' 3. DATOS (Persistencia Relacional)
+' ============================================================================
+rectangle "DATOS (Persistencia)" <<PkgDB>> as PKG_DB {
+  interface "IDatos\n(SQL / psycopg2)" as I_DatosSQL #D8B4FE;line:6B21A8
+  component "Base de Datos Inmobiliaria\n(PostgreSQL — habita_db)" as DB_Postgres <<component>> #E9D8FD;line:6B46C1
+}
+
+' ============================================================================
+' 4. MICROSERVICIO DE INTELIGENCIA ARTIFICIAL (ml_service)
+' ============================================================================
+rectangle "MOTOR DE INTELIGENCIA ARTIFICIAL (ml_service)" <<PkgML>> as PKG_ML {
+  interface "IPrediccionML\n(REST /predict & /batch)" as I_PrediccionML #5EEAD4;line:0F766E
+  component "Motor de Inferencia Predictiva\n(ModeloPredictivoService — F5, F6)" as ML_Inferencia <<component>> #CCFBF1;line:0F766E
+
+  interface "IEntrenamientoML\n(REST /retrain)" as I_EntrenamientoML #5EEAD4;line:0F766E
+  component "Pipeline ETL y Reentrenamiento\n(Preprocesamiento & GoF Template Method — F2, F3)" as ML_Entrenamiento <<component>> #CCFBF1;line:0F766E
+
+  ML_Inferencia -[hidden]right- ML_Entrenamiento
+}
+
+' ============================================================================
+' 5. INTEGRACIONES EXTERNAS
+' ============================================================================
+rectangle "INTEGRACIONES EXTERNAS" <<PkgEXT>> as PKG_EXT {
+  interface "IPortalesExternos\n(HTTPS / JSON & HTML)" as I_Portales #FDE68A;line:92400E
+  component "Portales Inmobiliarios de Medellín\n(Finca Raíz, Metrocuadrado, CienCuadras)" as EXT_Portales <<component>> #FEF3C7;line:B7791F
+}
+
+' Orden vertical entre paquetes del extremo derecho
+PKG_DB  -[hidden]right- PKG_ML
+PKG_ML  -[hidden]right- PKG_EXT
+
+' ============================================================================
+' CONEXIONES Y DEPENDENCIAS (Izquierda a Derecha)
+' ============================================================================
+
+' 1. Frontend -> API Gateway (HTTP/HTTPS)
+FE_Arrendatario -(0- BE_Gateway : HTTP/HTTPS
+FE_Propietario  -(0- BE_Gateway : HTTP/HTTPS
+FE_Admin        -(0- BE_Gateway : HTTP/HTTPS
+
+' 2. API Gateway -> Interfaz API REST (Interna) -> Servicios del Backend
+BE_Gateway -- I_API_Interna
+I_API_Interna )-- BE_Auth
+I_API_Interna )-- BE_Margen
+I_API_Interna )-- BE_Catalogo
+I_API_Interna )-- BE_Estimacion
+I_API_Interna )-- BE_AdminOrch
+I_API_Interna )-- BE_Crawlers
+
+' 3. Interfaces Provistas por cada Servicio del Backend (a la derecha de cada componente)
+BE_Auth       -- I_Auth
+BE_Margen     -- I_Margen
+BE_Catalogo   -- I_Catalogo
+BE_Estimacion -- I_Estimacion
+BE_AdminOrch  -- I_Gobernanza
+BE_Crawlers   -- I_Crawlers
+
+' 4. Interfaces Provistas en Datos, Microservicio ML e Integraciones Externas
+I_DatosSQL        -- DB_Postgres
+I_PrediccionML    -- ML_Inferencia
+I_EntrenamientoML -- ML_Entrenamiento
+I_Portales        -- EXT_Portales
+
+' 5. Dependencias de Uso (..>) hacia Datos, ML e Integraciones Externas
+I_Auth       ..> I_DatosSQL
+I_Margen     ..> I_DatosSQL
+I_Catalogo   ..> I_DatosSQL
+I_Catalogo   ..> I_PrediccionML
+I_Estimacion ..> I_DatosSQL
+I_Estimacion ..> I_PrediccionML
+I_Gobernanza ..> I_DatosSQL
+I_Gobernanza ..> I_EntrenamientoML
+I_Crawlers   ..> I_Portales
+
+legend bottom
+  <b>LEYENDA — Diagrama de Componentes UML 2.5</b>
+  | Símbolo | Elemento | Explicación |
+  | <[=]> | <b><<component>> Componente</b> | Los componentes representan módulos desplegables del sistema con responsabilidades cohesionadas. |
+  | ()-- | <b>Interfaz Provista (Lollipop)</b> | Las interfaces provistas son los contratos y operaciones ofrecidas por el componente. |
+  | -(0- | <b>Interfaz Requerida (Socket) / Conexión</b> | Las interfaces requeridas son utilizadas por el componente consumidor mediante conexión de ensamblaje. |
+  | ..> | <b>Dependencia (Uso)</b> | Relación dirigida que indica que un servicio consume la interfaz provista por otro subsistema. |
+endlegend
+
+@enduml

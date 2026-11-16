@@ -1,0 +1,166 @@
+@startuml
+title <b>Diagrama de Secuencia UML 2.5 — Épica 3A (RU-03): Seguridad y Autenticación de Administrador</b>\n<i>Escenario: Autenticación Exclusiva con Bcrypt/JWT y Bloqueo Temporal de 30 Minutos por Fuerza Bruta (RN-05) (HU-06 — MVP F7)</i>
+autonumber "<b>[00]"
+scale max 3200 width
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 240
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+
+skinparam sequence {
+  ArrowColor #1E293B
+  ArrowFontColor #0F172A
+  ArrowFontSize 11
+  ArrowThickness 1.4
+  LifeLineBorderColor #475569
+  LifeLineBackgroundColor #F8FAFC
+  ActivationBorderColor #1D4ED8
+  ActivationBackgroundColor #DBEAFE
+  GroupBorderColor #334155
+  GroupBackgroundColor #F1F5F9
+  GroupHeaderFontColor #0F172A
+  GroupFontSize 12
+  DividerBackgroundColor #E2E8F0
+  DividerBorderColor #64748B
+}
+
+actor "Administrador" as Actor #DBEAFE
+
+box "Subsistema FRONTEND (React SPA)" #F0F7FF
+  boundary ":LoginAdminUI\n(AdminLogin.tsx / client.ts)" as UI #DCEEFB
+end box
+
+box "Subsistema BACKEND PRINCIPAL (FastAPI :8000 — Seguridad RN-05 y Auditoría RNF-09)" #F2FBF4
+  boundary ":AuthRouter\n(auth_router.py)" as Router #DCFCE7
+  control ":AutenticacionControl\n(autenticacion_control.py)" as Ctrl #DCFCE7
+  entity ":AdminRepository\n(admin_repository.py)" as Repo #DCFCE7
+  entity ":Administrador\n(admin_entity.py)" as Entity #DCFCE7
+  participant ":SecurityModule\n(security.py — Bcrypt & PyJWT)" as Sec #DCFCE7
+end box
+
+box "DATOS (PostgreSQL :5432)" #FAF5FF
+  database ":habita_db\n(Tablas admins & audit_logs)" as DB #E9D8FD
+end box
+
+== Recepción de Credenciales Administrativas Exclusivas (RF-07, RNF-01) ==
+
+Actor -> UI : ingresarCredenciales(username, password)
+activate UI
+
+UI -> Router : loginAdmin(payload)\nPOST /api/v1/auth/login
+activate Router
+
+Router -> Ctrl : autenticar_admin(LoginRequestSchema)
+activate Ctrl
+
+Ctrl -> Repo : obtener_por_username(username)
+activate Repo
+Repo -> DB : SELECT * FROM admins WHERE username = ?
+activate DB
+DB --> Repo : registro_admin | None
+deactivate DB
+Repo --> Ctrl : admin: Administrador | None
+deactivate Repo
+
+alt Excepción E1: Usuario inexistente [admin == None]
+
+  Ctrl -> Repo : registrar_evento_auditoria(accion="Intento de login fallido", estado="warn")
+  activate Repo
+  Repo -> DB : INSERT INTO audit_logs (...) (RNF-09)
+  deactivate Repo
+  Ctrl --x Router : HTTPException(401 Unauthorized, intentos_restantes=2)
+  Router --> UI : HTTP 401 Unauthorized (AuthFailureDetailSchema)
+  UI --> Actor : Muestra error de credenciales inválidas
+
+else Excepción E2: Cuenta con bloqueo temporal RN-05 vigente [admin.esta_bloqueado() == True (ahora < bloqueado_hasta)]
+
+  Ctrl -> Entity : esta_bloqueado() & minutos_restantes_bloqueo()
+  activate Entity
+  Entity --> Ctrl : True, min_restantes (1..30 min)
+  deactivate Entity
+
+  Ctrl -> Repo : registrar_evento_auditoria(accion="Intento en cuenta bloqueada (RN-05)", estado="error")
+  activate Repo
+  Repo -> DB : INSERT INTO audit_logs (...) (RNF-09)
+  deactivate Repo
+
+  Ctrl --x Router : HTTPException(423 Locked, bloqueado=True, minutos_restantes_bloqueo=min_restantes)
+  Router --> UI : HTTP 423 Locked (AuthFailureDetailSchema)
+  UI --> Actor : Muestra pantalla de bloqueo temporal con cuenta regresiva (min_restantes)
+
+else Cuenta activa [!admin.esta_bloqueado()] -> Verificación Criptográfica Bcrypt (RNF-01)
+
+  Ctrl -> Sec : verify_password(password_plano, admin.password_hash)
+  activate Sec
+  Sec --> Ctrl : es_valida: bool
+  deactivate Sec
+
+  alt Flujo Principal: Credenciales Válidas [es_valida == True]
+
+    Ctrl -> Entity : resetear_intentos()
+    activate Entity
+    Entity --> Ctrl : intentos_fallidos = 0, bloqueado_hasta = None, ultimo_acceso = ahora
+    deactivate Entity
+
+    Ctrl -> Repo : guardar(admin) & registrar_evento_auditoria(accion="Inicio de sesión administrativo", estado="ok")
+    activate Repo
+    Repo -> DB : UPDATE admins SET intentos_fallidos=0, bloqueado_hasta=NULL; INSERT INTO audit_logs (...)
+    deactivate Repo
+
+    Ctrl -> Sec : create_access_token(username=admin.username, rol="ADMIN")
+    activate Sec
+    Sec --> Ctrl : access_token (JWT HS256, exp=120 min)
+    deactivate Sec
+
+    Ctrl --> Router : TokenResponseSchema(access_token, token_type="bearer", username, rol="ADMIN")
+    Router --> UI : HTTP 200 OK (TokenResponse JSON)
+    UI -> UI : sessionStorage.setItem("habita_admin_token", access_token)
+    UI --> Actor : Redirige al Panel de Administración (AdminDashboardUI — RF-11)
+
+  else Flujo Alternativo / Excepción por Contraseña Incorrecta [es_valida == False]
+
+    Ctrl -> Entity : registrar_intento_fallido_rn05()
+    activate Entity
+    Entity -> Entity : intentos_fallidos += 1
+    Entity --> Ctrl : recien_bloqueado: bool (True si intentos_fallidos >= 3)
+    deactivate Entity
+
+    Ctrl -> Repo : guardar(admin)
+    activate Repo
+    Repo -> DB : UPDATE admins SET intentos_fallidos = ?, bloqueado_hasta = ?
+    deactivate Repo
+
+    alt Excepción E3: 3.er Intento Fallido Consecutivo -> Activación de Bloqueo por 30 Minutos [recien_bloqueado == True (RN-05)]
+
+      Ctrl -> Repo : registrar_evento_auditoria(accion="Bloqueo de cuenta activado (RN-05)", estado="error")
+      activate Repo
+      Repo -> DB : INSERT INTO audit_logs (detalle="Cuenta bloqueada por 30 min tras 3 fallos") (RNF-09)
+      deactivate Repo
+
+      Ctrl --x Router : HTTPException(423 Locked, bloqueado=True, minutos_restantes_bloqueo=30)
+      Router --> UI : HTTP 423 Locked (AuthFailureDetailSchema)
+      UI --> Actor : Bloquea formulario por 30 minutos e informa motivo de seguridad (RN-05)
+
+    else Flujo Alternativo A1: Intento Fallido 1 o 2 [recien_bloqueado == False (intentos_fallidos < 3)]
+
+      Ctrl -> Repo : registrar_evento_auditoria(accion="Intento de login fallido", estado="warn")
+      activate Repo
+      Repo -> DB : INSERT INTO audit_logs (detalle="Intento X/3") (RNF-09)
+      deactivate Repo
+
+      Ctrl --x Router : HTTPException(401 Unauthorized, bloqueado=False, intentos_restantes = 3 - intentos_fallidos)
+      deactivate Ctrl
+      Router --> UI : HTTP 401 Unauthorized (AuthFailureDetailSchema)
+      deactivate Router
+      UI --> Actor : Muestra alerta de contraseña incorrecta e intentos restantes antes del bloqueo
+      deactivate UI
+
+    end
+  end
+end
+
+@enduml

@@ -1,0 +1,161 @@
+@startuml
+title <b>Diagrama de Secuencia UML 2.5 — Épica 2 (RU-02): Inteligencia de Precios y Análisis Competitivo</b>\n<i>Escenario: Estimación Híbrida de Canon (GoF Facade), Comparables (RN-03) y Estrategias de Margen (GoF Strategy, RN-04) (HU-02, HU-08 — MVP F6 y F4)</i>
+autonumber "<b>[00]"
+scale max 3400 width
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 240
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+
+skinparam sequence {
+  ArrowColor #1E293B
+  ArrowFontColor #0F172A
+  ArrowFontSize 11
+  ArrowThickness 1.4
+  LifeLineBorderColor #475569
+  LifeLineBackgroundColor #F8FAFC
+  ActivationBorderColor #15803D
+  ActivationBackgroundColor #DCFCE7
+  GroupBorderColor #334155
+  GroupBackgroundColor #F1F5F9
+  GroupHeaderFontColor #0F172A
+  GroupFontSize 12
+  DividerBackgroundColor #E2E8F0
+  DividerBorderColor #64748B
+}
+
+actor "Propietario" as Actor #DBEAFE
+
+box "Subsistema FRONTEND (React SPA)" #F0F7FF
+  boundary ":PanelPropietarioUI\n(CalculadoraUI & PanelPropietarioUI\nPropietario.tsx)" as UI #DCEEFB
+end box
+
+box "Subsistema BACKEND PRINCIPAL (FastAPI :8000 — BCE + GoF Facade & Strategy)" #F2FBF4
+  boundary ":ValuationRouter\n(valuation_router.py)" as Router #DCFCE7
+  control ":AnalisisCompetitivoControl\n(analisis_competitivo_control.py)" as Ctrl #DCFCE7
+  control ":PropertyValuationFacade\n(<<GoF Facade>> valuation_facade_control.py)" as Facade #DCFCE7
+  participant ":MLServiceClient\n(ml_service_client.py)" as MLClient #DCFCE7
+  entity ":PropertyRepository\n(property_repository.py)" as Repo #DCFCE7
+  participant ":CompetitiveMetricsService\n(<<service>> competitive_metrics_service.py)" as Metrics #DCFCE7
+  participant ":PricingMarginCalculator\n(<<GoF Strategy>> pricing_strategies.py)" as Strategy #DCFCE7
+end box
+
+box "MOTOR IA (ml_service :8001)" #F0FDFA
+  participant ":ModeloPredictivoService\n(<<service>> inference_service.py)" as MLService #CCFBF1
+end box
+
+box "DATOS (PostgreSQL :5432)" #FAF5FF
+  database ":habita_db\n(Tabla properties)" as DB #E9D8FD
+end box
+
+== Fase 1: Solicitud de Estimación de Precio y Análisis Competitivo Integral (RF-03, RF-04, RF-05, RF-06) ==
+
+Actor -> UI : ingresarAtributosVivienda(comuna, barrio, tipo, area, habs, banos, parq, estrato)
+activate UI
+
+UI -> Router : estimatePropertyPrice(payload)\nPOST /api/v1/properties/estimate
+activate Router
+
+alt Flujo Principal [Datos de entrada válidos según esquema Pydantic (area > 0, estrato 1..6)]
+
+  Router -> Ctrl : ejecutar_analisis_integral(solicitud: PropertyEstimateRequestSchema)
+  activate Ctrl
+
+  Ctrl -> Facade : estimar_y_comparar(solicitud)
+  activate Facade
+
+  == Fase 2: Ejecución Concurrente Fork/Join en la Fachada (asyncio.gather <= 3s — RNF-05) ==
+
+  par Rama Concurrente 1: Inferencia de Precio con IA (RF-03, RN-01)
+    Facade -> MLClient : predecir_precio(comuna, barrio, tipo_inmueble, area, habs, banos, parq, estrato)
+    activate MLClient
+
+    alt Microservicio ML (:8001) en línea [Respuesta en < 50 ms]
+      MLClient -> MLService : POST /api/v1/ml/predict (InmuebleInputSchema)
+      activate MLService
+      MLService -> MLService : predecir_individual() con artefacto .joblib en RAM
+      MLService --> MLClient : HTTP 200 OK (precio_estimado_cop, precio_m2, modelo, mape_validacion)
+      deactivate MLService
+    else Flujo Alternativo Resiliente A1 [Contenedor ML :8001 no disponible o Timeout > 2.5s]
+      MLClient -> MLClient : _predecir_en_proceso_local(payload)\nUsa modelo .joblib de respaldo precargado en RAM
+    end
+
+    MLClient --> Facade : prediccion_ml (MLPredictionResult)
+    deactivate MLClient
+
+  else Rama Concurrente 2: Búsqueda SQL de Competidores Comparables (RF-04, RN-03)
+    Facade -> Repo : buscar_similares_rn03(comuna, estrato, tipo_inmueble, area, limit=10)
+    activate Repo
+    Repo -> DB : SELECT * FROM properties WHERE comuna=? AND estrato=? AND tipo_inmueble=?\nAND area BETWEEN area*0.85 AND area*1.15 (Criterios estrictos RN-03)
+    activate DB
+    DB --> Repo : filas_comparables
+    deactivate DB
+    Repo -> Repo : validar Inmueble.es_comparable_con(propiedad_objetivo) (RN-03)
+    Repo --> Facade : competidores_entidades (list[Inmueble])
+    deactivate Repo
+  end
+
+  == Fase 3: Cálculo de Métricas del Sector (RF-05) y Estrategias de Margen (GoF Strategy — RF-06, RN-04) ==
+
+  Facade -> Metrics : calcular_metricas_sector(competidores_entidades, area_base, precio_estimado_fallback)
+  activate Metrics
+
+  alt Competidores similares encontrados [len(competidores_entidades) > 0]
+    Metrics --> Facade : MetricasCompetitivasSchema(precio_minimo, precio_promedio, precio_maximo, total_comparables)
+  else Flujo Alternativo A2 [Sin competidores exactos bajo RN-03 en la comuna (len == 0)]
+    Metrics --> Facade : MetricasCompetitivasSchema(bandas calculadas sobre precio_estimado_fallback, total_comparables=0)
+  end
+  deactivate Metrics
+
+  Facade --> Ctrl : respuesta (PropertyEstimateResponseSchema con precio_estimado, mape_modelo_pct <= 16% y competidores)
+  deactivate Facade
+
+  Ctrl -> Strategy : evaluar_todas_las_estrategias(precio_base=precio_estimado, metricas_mercado)
+  activate Strategy
+
+  loop Por cada estrategia en [Liquidity (-5%), MarketBalanced (0%), Profitability (+5%)] (RN-04)
+    Strategy -> Strategy : strategy.calcular_recomendacion(precio_base, metricas_mercado)
+  end
+
+  Strategy --> Ctrl : estrategias_comerciales {"liquidez": -5%, "mercado": 0%, "rentabilidad": +5%}
+  deactivate Strategy
+
+  Ctrl --> Router : PropertyEstimateResponseSchema completo
+  deactivate Ctrl
+
+  Router --> UI : HTTP 200 OK (JSON con estimación, MAPE, competidores RN-03, métricas RF-05 y estrategias RN-04)
+  UI --> Actor : Renderiza Canon Estimado, MAPE, tabla de competidores y rango [-5%, +5%] (< 3s RNF-05)
+
+  == Fase 4: Recálculo Interactivo de Estrategia Comercial Seleccionada (Opcional — MVP F4) ==
+
+  opt Propietario conmuta estrategia comercial en la interfaz [liquidez | mercado | rentabilidad]
+    Actor -> UI : seleccionarEstrategia(estrategia="liquidez" | "mercado" | "rentabilidad")
+    UI -> Router : calculateMarginByStrategy()\nPOST /api/v1/properties/margin
+    activate Router
+    Router -> Ctrl : calcular_margen_estrategia(MarginCalculationRequestSchema)
+    activate Ctrl
+    Ctrl -> Strategy : calcular_por_clave(clave, precio_base_estimado, metricas_mercado)
+    activate Strategy
+    Strategy --> Ctrl : PricingRecommendationSchema(precio_sugerido, limite_inferior_-5%, limite_superior_+5%, justificacion)
+    deactivate Strategy
+    Ctrl --> Router : PricingRecommendationSchema
+    deactivate Ctrl
+    Router --> UI : HTTP 200 OK (PricingRecommendation JSON)
+    deactivate Router
+    UI --> Actor : Actualiza tarjeta de Precio Sugerido y justificación comercial sin recargar página (RNF-06)
+  end
+
+else Flujo de Excepción E1 [Atributos inválidos en el formulario (ej. área <= 0 o estrato fuera de 1..6)]
+
+  Router --> UI : HTTP 422 Unprocessable Entity (Error de validación Pydantic)
+  deactivate Router
+  UI --> Actor : Muestra alerta de validación en los campos del formulario
+  deactivate UI
+
+end
+
+@enduml

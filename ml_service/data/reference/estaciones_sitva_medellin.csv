@@ -1,0 +1,79 @@
+﻿sistema,linea,estacion,latitud,longitud,tipo
+Metro,Línea A,Niquía,6.33814,-75.54611,Metro
+Metro,Línea A,Bello,6.33156,-75.55139,Metro
+Metro,Línea A,Madera,6.315,-75.55833,Metro
+Metro,Línea A,Acevedo,6.299943,-75.558556,Metro / Transferencia Cable
+Metro,Línea A,Tricentenario,6.290315,-75.564717,Metro
+Metro,Línea A,Caribe,6.278327,-75.569405,Metro
+Metro,Línea A,Universidad,6.269433,-75.565828,Metro
+Metro,Línea A,Hospital,6.26392,-75.563335,Metro / Transferencia Metroplús
+Metro,Línea A,Prado,6.25685,-75.566172,Metro / Transferencia Metroplús
+Metro,Línea A,Parque Berrío,6.250502,-75.568236,Metro
+Metro,Línea A,San Antonio,6.247195,-75.569703,Metro / Transferencia Metro B y Tranvía
+Metro,Línea A,Alpujarra,6.242917,-75.571425,Metro
+Metro,Línea A,Exposiciones,6.23722,-75.57278,Metro
+Metro,Línea A,Industriales,6.23056,-75.57528,Metro / Transferencia Metroplús
+Metro,Línea A,Poblado,6.21222,-75.5781,Metro
+Metro,Línea A,Aguacatala,6.19917,-75.58028,Metro
+Metro,Línea A,Ayurá,6.18972,-75.58167,Metro
+Metro,Línea A,Envigado,6.17639,-75.58667,Metro
+Metro,Línea A,Itagüí,6.16611,-75.5925,Metro
+Metro,Línea A,Sabaneta,6.15222,-75.6025,Metro
+Metro,Línea A,La Estrella,6.14306,-75.615,Metro
+Metro,Línea B,San Antonio,6.247195,-75.569703,Metro / Transferencia
+Metro,Línea B,Cisneros,6.249054,-75.575152,Metro / Transferencia Metroplús
+Metro,Línea B,Suramericana,6.2525,-75.58389,Metro
+Metro,Línea B,Estadio,6.25306,-75.58917,Metro
+Metro,Línea B,Floresta,6.25889,-75.59778,Metro
+Metro,Línea B,Santa Lucía,6.25944,-75.60417,Metro
+Metro,Línea B,San Javier,6.2575,-75.6125,Metro / Transferencia Cable J
+Tranvía,Línea T,San Antonio,6.247195,-75.569703,Tranvía
+Tranvía,Línea T,San José,6.246944,-75.564444,Tranvía / Transferencia Metroplús L2
+Tranvía,Línea T,Pabellón del Agua EPM,6.245833,-75.56,Tranvía
+Tranvía,Línea T,Bicentenario,6.244444,-75.556111,Tranvía
+Tranvía,Línea T,Buenos Aires,6.243056,-75.551389,Tranvía
+Tranvía,Línea T,Miraflores,6.2425,-75.546944,Tranvía / Transferencia Cable M
+Tranvía,Línea T,Loyola,6.241389,-75.542778,Tranvía
+Tranvía,Línea T,Alejandro Echavarría,6.239444,-75.539167,Tranvía
+Tranvía,Línea T,Oriente,6.238056,-75.535,Tranvía / Transferencia Cable H
+Metroplús,Línea 1,Universidad de Medellín,6.231111,-75.610556,Bus de Tránsito Rápido
+Metroplús,Línea 1,Los Alpes,6.232222,-75.603333,Bus de Tránsito Rápido
+Metroplús,Línea 1,La Palma,6.233056,-75.5975,Bus de Tránsito Rápido
+Metroplús,Línea 1,Parque de Belén,6.233889,-75.591389,Bus de Tránsito Rápido
+Metroplús,Línea 1,Rosales,6.234444,-75.586111,Bus de Tránsito Rápido
+Metroplús,Línea 1,Fátima,6.235556,-75.580278,Bus de Tránsito Rápido
+Metroplús,Línea 1,Nutibara,6.236667,-75.576944,Bus de Tránsito Rápido
+Metroplús,Línea 1,Industriales,6.230556,-75.575278,Bus / Transferencia Metro A
+Metroplús,Línea 1,Plaza Mayor,6.241667,-75.576111,Bus de Tránsito Rápido
+Metroplús,Línea 1,Cisneros,6.249054,-75.575152,Bus / Transferencia Metro B
+Metroplús,Línea 1,Minorista,6.255556,-75.572778,Bus de Tránsito Rápido
+Metroplús,Línea 1,Chagualo,6.261111,-75.568333,Bus de Tránsito Rápido
+Metroplús,Línea 1,Ruta N / Universidad,6.265278,-75.566389,Bus / Transferencia Metro A
+Metroplús,Línea 1,Hospital,6.26392,-75.563335,Bus / Transferencia Metro A
+Metroplús,Línea 1,Prado,6.25685,-75.566172,Bus / Transferencia Metro A
+Metroplús,Línea 1,Palos Verdes,6.265556,-75.556667,Bus de Tránsito Rápido
+Metroplús,Línea 1,Gardel,6.271111,-75.554444,Bus de Tránsito Rápido
+Metroplús,Línea 1,Manrique,6.276667,-75.5525,Bus de Tránsito Rápido
+Metroplús,Línea 1,Las Esmeraldas,6.2825,-75.551667,Bus de Tránsito Rápido
+Metroplús,Línea 1,Berlin,6.287778,-75.552222,Bus de Tránsito Rápido
+Metroplús,Línea 1,Parque de Aranjuez,6.291944,-75.554167,Bus de Tránsito Rápido
+Metrocable,Línea K,Acevedo,6.299943,-75.558556,Cable aéreo / Transferencia
+Metrocable,Línea K,Andalucía,6.301944,-75.550278,Cable aéreo
+Metrocable,Línea K,Popular,6.299444,-75.543611,Cable aéreo
+Metrocable,Línea K,Santo Domingo,6.298056,-75.538333,Cable aéreo / Transferencia Cable L
+Metrocable,Línea J,San Javier,6.2575,-75.6125,Cable aéreo / Transferencia
+Metrocable,Línea J,Juan XXIII,6.265694,-75.613722,Cable aéreo
+Metrocable,Línea J,Vallejuelos,6.273611,-75.614444,Cable aéreo
+Metrocable,Línea J,La Aurora,6.278333,-75.613333,Cable aéreo
+Metrocable,Línea L,Santo Domingo,6.298056,-75.538333,Cable turístico / Transferencia
+Metrocable,Línea L,Arví,6.281389,-75.501944,Cable turístico
+Metrocable,Línea H,Oriente,6.238056,-75.535,Cable aéreo / Transferencia
+Metrocable,Línea H,Las Torres,6.238889,-75.529167,Cable aéreo
+Metrocable,Línea H,Villa Sierra,6.241111,-75.523056,Cable aéreo
+Metrocable,Línea M,Miraflores,6.2425,-75.546944,Cable aéreo / Transferencia
+Metrocable,Línea M,El Pinal,6.243611,-75.541944,Cable aéreo
+Metrocable,Línea M,Trece de Noviembre,6.243889,-75.536667,Cable aéreo
+Metrocable,Línea P,Acevedo,6.299943,-75.558556,Cable aéreo / Transferencia
+Metrocable,Línea P,SENA,6.305278,-75.565833,Cable aéreo
+Metrocable,Línea P,Doce de Octubre,6.308889,-75.574444,Cable aéreo
+Metrocable,Línea P,El Progreso,6.3125,-75.583333,Cable aéreo

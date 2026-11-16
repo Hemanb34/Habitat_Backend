@@ -1,0 +1,120 @@
+@startuml
+title <b>Diagrama de Despliegue UML 2.5</b>\n<i>Sistema de Búsqueda y Estimación Inmobiliaria — Habita (Infraestructura MVP y Proyección Cloudflare)</i>
+left to right direction
+scale max 3400 width
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam nodesep 42
+skinparam ranksep 65
+skinparam padding 6
+skinparam linetype ortho
+
+skinparam node {
+  FontName "Segoe UI"
+  FontSize 13
+  FontStyle bold
+  BorderThickness 2
+  StereotypeFontName "Segoe UI"
+  StereotypeFontSize 11
+  StereotypeFontStyle italic
+}
+
+skinparam artifact {
+  FontName "Segoe UI"
+  FontSize 11
+  FontStyle bold
+  BorderThickness 1.5
+  StereotypeFontName "Segoe UI"
+  StereotypeFontSize 11
+  StereotypeFontStyle italic
+}
+
+skinparam Arrow {
+  Color #1E293B
+  FontColor #0F172A
+  FontSize 11
+  Thickness 1.5
+}
+
+node "Nodo Cliente: Dispositivo de Usuario\n(PC / Laptop / Móvil)" <<device>> as NODE_CLIENT #F0F7FF;line:2B6CB0 {
+  node "Navegador Web Moderno\n(Motor JS ES2022+ / Fetch API)" <<execution environment>> as ENV_BROWSER #DCEEFB;line:2B6CB0 {
+    artifact "bundle_spa_habita (React 19 + TS + Vite)\n────────────────────────\nManifiesta componentes:\n• Portal Web Arrendatarios (F5)\n• Portal Web Propietarios (F6, F4)\n• Consola Web Administrativa (F7, F1, F2, F3)" <<artifact>> as ART_SPA #FFFFFF;line:2B6CB0
+  }
+}
+
+node "Red de Borde Cloudflare (CDN, DNS, SSL/TLS y Zero Trust)" <<cloud / elemento proyectado>> as NODE_CF #FFF7ED;line:EA580C;line.dashed {
+  node "Cloudflare Pages / Vite Static Host\n(En MVP local: Vite Server :5173)" <<execution environment / proyectado>> as ENV_CF_PAGES #FFEDD5;line:EA580C;line.dashed {
+    artifact "dist_static_assets\n(index.html, JS/CSS minificados)" <<artifact>> as ART_STATIC #FFFFFF;line:EA580C
+  }
+
+  node "Cloudflare Zero Trust Gateway\n(Proxy Inverso HTTPS + WAF)" <<execution environment / proyectado>> as ENV_CF_GW #FFEDD5;line:EA580C;line.dashed {
+    artifact "Túnel Cifrado Cloudflare\n(Timeout HTTP máx: 100s)" <<artifact / proyectado>> as ART_CF_EDGE #FFFFFF;line:EA580C;line.dashed
+  }
+
+  ENV_CF_PAGES -[hidden]right- ENV_CF_GW
+}
+
+node "Nodo Servidor Host de Aplicaciones y Datos\n(Workstation MVP / VPS Linux Docker Host — 2+ vCPU, >= 4 GB RAM)" <<device>> as NODE_HOST #F8FAFC;line:334155 {
+
+  node "Agente Cloudflare Tunnel\n(cloudflared daemon)" <<container / elemento proyectado>> as ENV_CFD #FFF7ED;line:EA580C;line.dashed {
+    artifact "cloudflared_connector\n(Túnel saliente sin abrir puertos)" <<artifact / proyectado>> as ART_CFD #FFEDD5;line:EA580C;line.dashed
+  }
+
+  node "Entorno API Backend Principal\n(Python 3.14 + FastAPI / Uvicorn ASGI — Puerto :8000)" <<execution environment>> as ENV_BE #F2FBF4;line:2F855A {
+    artifact "habita_backend_api (backend/main.py + app/)\n────────────────────────\nManifiesta componentes:\n• API REST Gateway (Routers Boundary)\n• Servicio de Autenticación (F7 — RN-05)\n• Servicio de Análisis Competitivo y Márgenes (F4 — GoF Strategy)\n• Servicio de Búsqueda y Catálogo (F5 — RNF-04)\n• Fachada de Estimación Inmobiliaria (F6 — GoF Facade)\n• Orquestador Administrativo y Dashboard (F1, F2, F3 — RNF-09)" <<artifact>> as ART_BE #DCFCE7;line:2F855A
+
+    artifact "habita_crawlers_pkg (crawlers/)\n────────────────────────\nManifiesta componente:\n• Motor de Ingesta y Crawlers (F1)\n  (GoF Factory Method & Adapter + httpx + asyncio.gather)" <<artifact>> as ART_CRAWL #DCFCE7;line:2F855A
+
+    ART_BE -[hidden]right- ART_CRAWL
+  }
+
+  node "Contenedor Docker de Base de Datos\n(Docker Engine — Imagen postgres:16 — Puerto :5432)" <<execution environment>> as ENV_DB #FAF5FF;line:6B46C1 {
+    artifact "habita_db (Esquema Relacional PostgreSQL)\n────────────────────────\nManifiesta componente: Base de Datos Inmobiliaria\nTablas: properties, admins (RN-05), portals,\ncrawler_jobs, model_versions, audit_logs (RNF-09)" <<artifact>> as ART_PG #E9D8FD;line:6B46C1
+
+    artifact "redis_cache (Redis :6379 — Proyectado en C4 Nivel 2)\n────────────────────────\nEn el MVP el bloqueo de 30 min (RN-05) se persiste\ndirectamente en la tabla admins de PostgreSQL" <<artifact / elemento proyectado>> as ART_REDIS #F3E8FF;line:9333EA;line.dashed
+  }
+
+  node "Entorno Microservicio de Machine Learning\n(Python 3.14 + FastAPI / Uvicorn ASGI — Puerto :8001, 1 Worker)" <<execution environment>> as ENV_ML #F0FDFA;line:0F766E {
+    artifact "habita_ml_service (ml_service/main.py + app/)\n────────────────────────\nManifiesta componentes:\n• Motor de Inferencia Predictiva (F5, F6 — RNF-05 < 3s)\n• Pipeline ETL y Reentrenamiento (F2, F3 — GoF Template Method,\n  Sin Fuga RN-02, Compuerta MAPE <= 16% RN-01, BackgroundTasks RNF-08)" <<artifact>> as ART_ML #CCFBF1;line:0F766E
+  }
+
+  node "Sistema de Archivos / Volumen Compartido de Artefactos\n(ml_service/artifacts/ & ml_service/data/)" <<storage / shared volume>> as ENV_VOL #F1F5F9;line:475569 {
+    artifact "modelos_habita.joblib (64.29 MB)\n+ modelos_habita.prev.joblib (Respaldo)" <<artifact>> as ART_JOBLIB #CCFBF1;line:0F766E
+    artifact "GeoDatos y CSVs Crudos\n(medellin_comunas.geojson, Estaciones_SITVA.csv,\narriendos_medellin_unificado.csv)" <<artifact>> as ART_GEO #CCFBF1;line:0F766E
+  }
+
+  ENV_DB  -[hidden]right- ENV_ML
+  ENV_ML  -[hidden]right- ENV_VOL
+}
+
+node "Infraestructura Externa de Portales Inmobiliarios\n(Servidores Web de Terceros — Medellín)" <<device / external system>> as NODE_EXT #FFFBEB;line:B7791F {
+  node "APIs y Servidores Web Públicos (Puerto :443)" <<execution environment>> as ENV_PORTALES #FEF3C7;line:B7791F {
+    artifact "Finca Raíz (fincaraiz.com.co)\nMetrocuadrado (metrocuadrado.com)\nCienCuadras (ciencuadras.com)\n────────────────────────\nManifiesta: Portales Inmobiliarios de Medellín" <<artifact>> as ART_PORTALES #FFFFFF;line:B7791F
+  }
+}
+
+ENV_BROWSER <--> ENV_CF_PAGES : "<<protocol>>\nHTTPS / TLS 1.3\n(Carga SPA)"
+ENV_BROWSER <--> ENV_CF_GW : "<<protocol / proyectado>>\nHTTPS REST JSON + JWT\n(api.habita.co)"
+ENV_CF_GW <--> ENV_CFD : "<<protocol / proyectado>>\nTúnel QUIC / HTTP2"
+ENV_CFD --> ENV_BE : "<<protocol / proyectado>>\nHTTP Interno (:8000)"
+ENV_BROWSER <--> ENV_BE : "<<protocol MVP Local>>\nHTTP REST JSON + JWT Bearer\n(:5173 -> :8000/api/v1)"
+
+ENV_BE <--> ENV_DB : "<<protocol>>\nTCP/IP — SQLAlchemy + psycopg2\n(Puerto :5432 — Pool Conexiones)"
+ENV_BE <--> ENV_ML : "<<protocol>>\nHTTP REST Interno (httpx JSON)\n(Puerto :8001 — /predict, /batch, /retrain)"
+ENV_BE ..> ENV_VOL : "<<protocol>>\nI/O Volumen Compartido\n(Modelo respaldo y CSVs)"
+ENV_ML <--> ENV_VOL : "<<protocol>>\nI/O Disco y Precarga RAM\n(Escritura atómica .joblib)"
+ENV_BE --> ENV_PORTALES : "<<protocol>>\nHTTPS Asíncrono (Puerto :443)\n(httpx + asyncio.gather + truststore SSL)"
+
+legend bottom
+  <b>LEYENDA — Diagrama de Despliegue UML 2.5 (Coherencia con Modelo C4 y Código Fuente del MVP)</b>
+  | Símbolo / Estereotipo | Significado en la Arquitectura |
+  | <b><<device>> / <<execution environment>></b> | Nodos de hardware/servidor y entornos de ejecución (procesos Python/Uvicorn, navegador web, contenedor Docker PostgreSQL). |
+  | <b><<artifact>> (Borde Sólido)</b> | Artefacto de software real implementado y operativo en el código fuente del MVP (<i>Frotend_Proyecto_Habita</i> y <i>Proyecto_Habita</i>). |
+  | <b><<elemento proyectado>> (Borde Punteado)</b> | Infraestructura proyectada para puesta en producción (Cloudflare Pages, Cloudflare Tunnel <i>cloudflared</i> y caché Redis del C4 Nivel 2). |
+  | <b><<protocol>> (Línea Continua)</b> | Canal de comunicación de red y protocolo de transporte entre entornos de ejecución. |
+endlegend
+
+@enduml

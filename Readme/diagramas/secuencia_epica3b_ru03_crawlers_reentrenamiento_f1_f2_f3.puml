@@ -1,0 +1,184 @@
+@startuml
+title <b>Diagrama de Secuencia UML 2.5 — Épica 3B (RU-03): Gobernanza de Ingesta (Crawlers) y Reentrenamiento IA</b>\n<i>Escenario: Extracción Asíncrona Multi-Portal (RN-06), Preprocesamiento Sin Fuga (RN-02) y Reentrenamiento con Compuerta MAPE <= 16% (RN-01) (HU-03, HU-04, HU-05 — MVP F1, F2, F3)</i>
+autonumber "<b>[00]"
+scale max 3400 width
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 240
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+
+skinparam sequence {
+  ArrowColor #1E293B
+  ArrowFontColor #0F172A
+  ArrowFontSize 11
+  ArrowThickness 1.4
+  LifeLineBorderColor #475569
+  LifeLineBackgroundColor #F8FAFC
+  ActivationBorderColor #0F766E
+  ActivationBackgroundColor #CCFBF1
+  GroupBorderColor #334155
+  GroupBackgroundColor #F1F5F9
+  GroupHeaderFontColor #0F172A
+  GroupFontSize 12
+  DividerBackgroundColor #E2E8F0
+  DividerBorderColor #64748B
+}
+
+actor "Administrador" as Actor #DBEAFE
+
+box "FRONTEND (React SPA)" #F0F7FF
+  boundary ":PanelAdminUI\n(AdminDashboard.tsx)" as UI #DCEEFB
+end box
+
+box "BACKEND PRINCIPAL (FastAPI :8000 — Orquestación y Módulo Crawlers)" #F2FBF4
+  boundary ":AdminRouter\n(admin_router.py)" as Router #DCFCE7
+  control ":AdminOrchestratorControl\n(admin_orchestrator_control.py)" as AdminCtrl #DCFCE7
+  control ":CrawlerOrquestadorControl\n(crawlers/orchestrator_control.py)" as CrawlOrch #DCFCE7
+  participant ":CrawlerFactory & Adapters\n(<<GoF Factory & Adapter>>)" as FactoryAdapter #DCFCE7
+  entity ":Property & AuditRepos\n(property_repo / audit_repo)" as Repos #DCFCE7
+end box
+
+box "MOTOR IA (ml_service :8001 — ETL & GoF Template Method)" #F0FDFA
+  control ":ReentrenamientoControl\n(training_pipeline_control.py)" as RetrainCtrl #CCFBF1
+  control ":PreprocesamientoControl\n(preprocessing_control.py)" as PrepCtrl #CCFBF1
+  control ":BaseModelTrainingPipeline\n(<<GoF Template Method>>)" as Pipeline #CCFBF1
+  participant ":ModeloPredictivoService\n(inference_service.py)" as MLService #CCFBF1
+end box
+
+box "DATOS & PORTALES EXTERNOS" #FAF5FF
+  database ":habita_db\n(PostgreSQL :5432)" as DB #E9D8FD
+  participant ":PortalesExternos\n(FincaRaíz / Metrocuadrado / CienCuadras)" as Ext #FEF3C7
+end box
+
+== Parte 1: Orquestación Asíncrona de Crawlers y Filtrado de Integridad RN-06 (HU-03 — MVP F1) ==
+
+Actor -> UI : clicEjecutarCrawlers(portal="Todos")
+activate UI
+
+UI -> Router : runAdminCrawlers()\nPOST /api/v1/admin/crawlers/run (Bearer JWT)
+activate Router
+Router -> AdminCtrl : ejecutar_crawlers(solicitud, admin_username="admin")
+activate AdminCtrl
+
+AdminCtrl -> CrawlOrch : ejecutar_extraccion(portals=["fincaraiz", "metrocuadrado", "ciencuadras"])
+activate CrawlOrch
+
+par Extracción Concurrente Multi-Portal (Fork/Join asyncio.gather — RF-08, RNF-07)
+  loop Por cada portal en ["fincaraiz", "metrocuadrado", "ciencuadras"]
+    CrawlOrch -> FactoryAdapter : create_crawler(portal) (GoF Factory Method — RNF-07)
+    activate FactoryAdapter
+    FactoryAdapter -> Ext : GET/POST asíncrono (httpx + Semaphore)
+    activate Ext
+    Ext --> FactoryAdapter : raw_payloads (JSON / HTML nativo del portal)
+    deactivate Ext
+    FactoryAdapter -> FactoryAdapter : adapt_many(raw_payloads) (GoF Adapter)\nDescarta registros sin url_origen válida (RN-06)
+    FactoryAdapter --> CrawlOrch : items_validos_rn06 + PortalCrawlReport
+    deactivate FactoryAdapter
+  end
+end
+
+CrawlOrch -> CrawlOrch : deduplicarPorUrlOrigen(items_validos_rn06)
+CrawlOrch --> AdminCtrl : OrchestrationSummary(items, portal_reports)
+deactivate CrawlOrch
+
+alt Flujo Principal de Ingesta [total_valid_unique > 0]
+  AdminCtrl -> MLService : predecir_lote(items) (Valoración IA para indicador Mejor Oferta RF-02)
+  activate MLService
+  MLService --> AdminCtrl : precios_estimados_lote
+  deactivate MLService
+
+  AdminCtrl -> Repos : upsert_lote_propiedades(nuevas_entidades) & registrar_crawler_job("SUCCESS") & registrar_log("ok")
+  activate Repos
+  Repos -> DB : INSERT/ON CONFLICT UPDATE properties; INSERT INTO crawler_jobs, audit_logs (RNF-09)
+  deactivate Repos
+else Flujo Alternativo / Excepción de Red E1 [Fallo en portal externo o 0 registros válidos]
+  AdminCtrl -> Repos : actualizar_estado_portal("error") & registrar_crawler_job("FAILED") & registrar_log("warn")
+  activate Repos
+  Repos -> DB : UPDATE portals SET ultimo_estado='error'; INSERT INTO crawler_jobs, audit_logs (RNF-09)
+  deactivate Repos
+end
+
+AdminCtrl --> Router : CrawlerRunResponseSchema(registros_extraidos_brutos, registros_validos_rn06, nuevos, actualizados)
+deactivate AdminCtrl
+Router --> UI : HTTP 200 OK (CrawlerRunResponse JSON)
+deactivate Router
+UI --> Actor : Actualiza métricas de extracción y bitácora en el Dashboard (RF-11)
+
+== Parte 2: Preprocesamiento Sin Fuga (RN-02) y Reentrenamiento con Compuerta MAPE <= 16% (RN-01) (HU-04, HU-05 — MVP F2 y F3) ==
+
+Actor -> UI : clicIniciarReentrenamiento()
+UI -> Router : runAdminModelRetrain()\nPOST /api/v1/admin/ml/retrain (Bearer JWT)
+activate Router
+Router -> AdminCtrl : ejecutar_reentrenamiento_ml(admin_username="admin")
+activate AdminCtrl
+
+note over AdminCtrl, MLService
+  <b>Continuidad del Servicio (RNF-08):</b> Mientras se ejecuta el pipeline de reentrenamiento protegido por Lock,
+  <i>ModeloPredictivoService</i> mantiene en RAM el artefacto <i>modelos_habita.joblib</i> vigente para atender consultas sin interrupción.
+end note
+
+AdminCtrl -> RetrainCtrl : ejecutar_reentrenamiento()
+activate RetrainCtrl
+
+RetrainCtrl -> PrepCtrl : ejecutar_limpieza_y_preparacion() (RF-09)
+activate PrepCtrl
+PrepCtrl -> DB : Extrae dataset consolidado de inmuebles con url_origen válida (RN-06)
+PrepCtrl -> PrepCtrl : Geocodificación Point-in-Polygon (GeoJSON), rescate Fuzzy GPS y filtro de outliers IQR
+PrepCtrl --> RetrainCtrl : df_limpio
+deactivate PrepCtrl
+
+loop Por cada régimen de mercado [PobladoTrainingPipeline y OtrasComunasTrainingPipeline (GoF Template Method)]
+  RetrainCtrl -> Pipeline : ejecutar_pipeline_completo(df_regimen)
+  activate Pipeline
+  Pipeline -> Pipeline : 1. _particionar_80_20() -> Divide 80% Train (X_train) y 20% Validación (X_val)
+  Pipeline -> Pipeline : 2. _ajustar_sin_fuga_de_datos() -> fit(Scaler, OneHot, TargetEncoder, SpatialKNN)\nEXCLUSIVAMENTE sobre 80% X_train y transform(X_val) sin recalcular (Regla RN-02)
+  Pipeline -> Pipeline : 3. _entrenar_ensamble() -> Entrena VotingRegressor (XGBoost + ExtraTrees)
+  Pipeline -> Pipeline : 4. _evaluar_mape() -> Calcula MAPE sobre el 20% de validación (X_val, y_val)
+  Pipeline --> RetrainCtrl : (pipeline_entrenado, mape_validacion)
+  deactivate Pipeline
+end
+
+alt Flujo Principal de Promoción [Compuerta de Calidad RN-01 / RNF-02 Aprobada: MAPE_Poblado <= 16% && MAPE_Comunas <= 16%]
+
+  RetrainCtrl -> RetrainCtrl : Respalda .prev.joblib y guarda atómicamente nuevo modelos_habita.joblib
+  RetrainCtrl --> AdminCtrl : RetrainingReport(promovido_a_produccion=True, mape_poblado, mape_otras_comunas)
+  deactivate RetrainCtrl
+
+  AdminCtrl -> MLService : recargar_modelo_en_caliente()
+  activate MLService
+  MLService --> AdminCtrl : Artefacto actualizado en memoria RAM sin caída del servicio (RNF-08)
+  deactivate MLService
+
+  AdminCtrl -> Repos : registrar_version_modelo(en_produccion=True) & registrar_log(estado="ok")
+  activate Repos
+  Repos -> DB : UPDATE model_versions SET en_produccion=FALSE; INSERT nueva versión (en_produccion=TRUE) + audit_logs (RNF-09)
+  deactivate Repos
+
+  AdminCtrl --> Router : ModelRetrainResponseSchema(promovido_a_produccion=True, mape_poblado_pct, mape_otras_comunas_pct)
+  Router --> UI : HTTP 200 OK (Modelo promovido a producción)
+  UI --> Actor : Muestra notificación de éxito, check verde RN-02 y actualiza curva histórica de MAPE (RF-11)
+
+else Flujo Alternativo / Excepción de Calidad E2 [Rechazo por Compuerta RN-01: MAPE_Poblado > 16% || MAPE_Comunas > 16%]
+
+  RetrainCtrl -> RetrainCtrl : Aborta promoción y conserva intacto el modelo anterior en producción
+  RetrainCtrl --> AdminCtrl : RetrainingReport(promovido_a_produccion=False, mensaje="Rechazado por superar umbral MAPE 16% RN-01")
+
+  AdminCtrl -> Repos : registrar_version_modelo(en_produccion=False) & registrar_log(estado="error")
+  activate Repos
+  Repos -> DB : INSERT INTO model_versions (en_produccion=FALSE); INSERT INTO audit_logs (estado='error') (RNF-09)
+  deactivate Repos
+
+  AdminCtrl --> Router : ModelRetrainResponseSchema(promovido_a_produccion=False, mensaje="Despliegue abortado por RN-01")
+  deactivate AdminCtrl
+  Router --> UI : HTTP 200 OK (promovido_a_produccion=False — Alerta de rechazo RN-01)
+  deactivate Router
+  UI --> Actor : Muestra alerta de seguridad informando que se conservó el modelo anterior por MAPE > 16%
+  deactivate UI
+
+end
+
+@enduml
