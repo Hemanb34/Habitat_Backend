@@ -17,6 +17,26 @@ class FincaraizAdapter(PropertyDataAdapter):
 
     PORTAL_NAME = "fincaraiz"
 
+    @staticmethod
+    def _select_best_image_url(images: list) -> Optional[str]:
+        """Prioriza URLs del CDN activo (infocasas) sobre buckets legados de AWS S3."""
+        fallback_s3: Optional[str] = None
+        for img_entry in images:
+            if not isinstance(img_entry, dict):
+                continue
+            raw_url = str(img_entry.get("image") or "").strip()
+            if not raw_url:
+                continue
+            if raw_url.startswith("http://"):
+                raw_url = "https://" + raw_url[len("http://") :]
+            if not raw_url.startswith("https://"):
+                continue
+            if "amazonaws.com" not in raw_url.lower():
+                return raw_url
+            if fallback_s3 is None:
+                fallback_s3 = raw_url
+        return fallback_s3
+
     def adapt(self, raw_data: dict, search_zone: str = "") -> Optional[PropertyCreate]:
         if not raw_data or not isinstance(raw_data, dict):
             return None
@@ -38,7 +58,7 @@ class FincaraizAdapter(PropertyDataAdapter):
             return None
 
         images = raw_data.get("images") or []
-        imagen_url = images[0].get("image") if images and isinstance(images[0], dict) else None
+        imagen_url = self._select_best_image_url(images)
 
         antiquity = raw_data.get("antiquity")
         if antiquity is None:

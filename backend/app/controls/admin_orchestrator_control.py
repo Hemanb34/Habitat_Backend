@@ -389,11 +389,11 @@ class AdminOrchestratorControl:
                 self._audit_repo.registrar_log(
                     accion=(
                         f"Crawler {MAPA_NOMBRE_PORTAL_UI.get(rep.portal.lower(), rep.portal)} "
-                        f"{'completado (S10)' if exito_portal else 'con error (S11)'}"
+                        f"{'renovó catálogo (S10)' if exito_portal else 'con error (S11)'}"
                     ),
                     detalle=(
                         f"Crudos: {rep.raw_extracted} | Válidos RN-06: {rep.valid_unique_items} | "
-                        f"Guardados en BD -> Nuevos: {insertados}, Actualizados: {actualizados} ({rep.elapsed_seconds}s)"
+                        f"Catálogo renovado en BD -> Vigentes insertados: {insertados}, Anteriores reemplazados: {actualizados} ({rep.elapsed_seconds}s)"
                         if exito_portal
                         else f"Extracción fallida o sin registros válidos RN-06: {rep.error_message or '0 registros'}"
                     ),
@@ -410,9 +410,8 @@ class AdminOrchestratorControl:
                 actualizados=actualizados,
                 duracion_segundos=resumen.elapsed_seconds,
                 mensaje=(
-                    f"Orquestación completada ({resumen.elapsed_seconds}s): "
-                    f"{resumen.total_valid_unique} inmuebles validados por RN-06 "
-                    f"({insertados} nuevos insertados y {actualizados} actualizados en PostgreSQL)."
+                    f"Catálogo renovado en PostgreSQL ({resumen.elapsed_seconds}s): "
+                    f"{insertados} inmuebles vigentes insertados (reemplazando {actualizados} registros anteriores)."
                     if alguno_exitoso
                     else "Alerta de extracción (S11 / T-13): No se obtuvieron registros válidos bajo RN-06 o falló la conexión al portal."
                 ),

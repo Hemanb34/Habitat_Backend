@@ -146,8 +146,8 @@ async def main() -> None:
                 usuario="admin",
             )
             print(
-                f"\n[PostgreSQL habita_db] Upsert completado: "
-                f"{insertados} nuevos insertados | {actualizados} actualizados."
+                f"\n[PostgreSQL habita_db] Catálogo renovado (Opción 1A): "
+                f"{insertados} vigentes insertados | {actualizados} anteriores reemplazados."
             )
 
 

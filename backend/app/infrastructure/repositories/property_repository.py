@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -128,7 +128,14 @@ class PropertyRepository(IPropertyRepository):
         self,
         nuevas_entidades: Sequence[Inmueble],
     ) -> tuple[int, int]:
-        """Inserta o actualiza en bloque todos los inmuebles deduplicando por `url_origen` (RN-06)."""
+        """Renueva transaccionalmente el catálogo de los portales extraídos (Opción 1A).
+
+        1. Deduplica el lote nuevo en memoria por `url_origen` (RN-06).
+        2. Si hay registros válidos (> 0), elimina los registros antiguos de los portales
+           incluidos en la corrida actual (`DELETE FROM properties WHERE portal IN (...)`)
+           para garantizar que no queden anuncios dados de baja ni URLs S3 caducadas.
+        3. Inserta en bloque los inmuebles vigentes recién extraídos y hace `commit()` atómico.
+        """
         if not nuevas_entidades:
             return 0, 0
 
@@ -142,84 +149,78 @@ class PropertyRepository(IPropertyRepository):
         if not por_url:
             return 0, 0
 
-        # 2. Consultar por bloques de 2.000 cuántas URLs ya existen para reportar (insertados vs actualizados)
-        urls_unicas = list(por_url.keys())
-        urls_existentes: set[str] = set()
-        tamano_bloque = 2000
-        for i in range(0, len(urls_unicas), tamano_bloque):
-            sub_urls = urls_unicas[i : i + tamano_bloque]
-            filas = (
-                self._db.execute(
-                    select(Inmueble.url_origen).where(Inmueble.url_origen.in_(sub_urls))
+        # 2. Identificar los portales presentes en este lote y eliminar sus registros anteriores
+        portales_en_lote = sorted({item.portal for item in por_url.values() if item.portal})
+        reemplazados_previos: int = (
+            self._db.execute(
+                select(func.count(Inmueble.id)).where(
+                    Inmueble.portal.in_(portales_en_lote)
                 )
-                .scalars()
-                .all()
+            ).scalar_one()
+            if portales_en_lote
+            else 0
+        )
+
+        if portales_en_lote:
+            self._db.execute(
+                delete(Inmueble).where(Inmueble.portal.in_(portales_en_lote))
             )
-            urls_existentes.update(filas)
 
-        insertados = sum(1 for u in urls_unicas if u not in urls_existentes)
-        actualizados = len(urls_unicas) - insertados
-
-        # 3. Ejecutar Upsert masivo nativo de PostgreSQL (ON CONFLICT (url_origen) DO UPDATE) en bloques de 2.000
+        # 3. Insertar en bloques de 2.000 los inmuebles vigentes normalizando cualquier imagen S3 legada
         ahora_utc = datetime.now(timezone.utc)
-        filas_dict = [
-            {
-                "portal": item.portal,
-                "title": item.title,
-                "tipo_inmueble": item.tipo_inmueble,
-                "area": item.area,
-                "estrato": item.estrato,
-                "comuna": item.comuna,
-                "barrio": item.barrio,
-                "habitaciones": item.habitaciones,
-                "banos": item.banos,
-                "parqueaderos": item.parqueaderos,
-                "estado": item.estado or "Usado",
-                "precio_publicado": item.precio_publicado,
-                "precio_estimado": item.precio_estimado,
-                "valor_administracion": item.valor_administracion,
-                "incluye_administracion": bool(item.incluye_administracion),
-                "amoblado": bool(item.amoblado),
-                "imagen_url": item.imagen_url,
-                "url_origen": url,
-                "latitud": item.latitud,
-                "longitud": item.longitud,
-                "antiguedad": item.antiguedad,
-                "fecha_extraccion": item.fecha_extraccion or ahora_utc,
-            }
-            for url, item in por_url.items()
-        ]
+        filas_dict = []
+        for url, item in por_url.items():
+            img_clean = item.imagen_url
+            if img_clean:
+                img_clean = (
+                    img_clean.strip()
+                    .replace(
+                        "https://www-img-cc.s3.amazonaws.com/",
+                        "https://www.ciencuadras.com/",
+                    )
+                    .replace(
+                        "http://www-img-cc.s3.amazonaws.com/",
+                        "https://www.ciencuadras.com/",
+                    )
+                )
+                if img_clean.startswith("http://"):
+                    img_clean = "https://" + img_clean[len("http://") :]
 
+            filas_dict.append(
+                {
+                    "portal": item.portal,
+                    "title": item.title,
+                    "tipo_inmueble": item.tipo_inmueble,
+                    "area": item.area,
+                    "estrato": item.estrato,
+                    "comuna": item.comuna,
+                    "barrio": item.barrio,
+                    "habitaciones": item.habitaciones,
+                    "banos": item.banos,
+                    "parqueaderos": item.parqueaderos,
+                    "estado": item.estado or "Usado",
+                    "precio_publicado": item.precio_publicado,
+                    "precio_estimado": item.precio_estimado,
+                    "valor_administracion": item.valor_administracion,
+                    "incluye_administracion": bool(item.incluye_administracion),
+                    "amoblado": bool(item.amoblado),
+                    "imagen_url": img_clean,
+                    "url_origen": url,
+                    "latitud": item.latitud,
+                    "longitud": item.longitud,
+                    "antiguedad": item.antiguedad,
+                    "fecha_extraccion": item.fecha_extraccion or ahora_utc,
+                }
+            )
+
+        tamano_bloque = 2000
         for i in range(0, len(filas_dict), tamano_bloque):
             lote = filas_dict[i : i + tamano_bloque]
-            stmt = pg_insert(Inmueble).values(lote)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["url_origen"],
-                set_={
-                    "portal": stmt.excluded.portal,
-                    "title": stmt.excluded.title,
-                    "tipo_inmueble": stmt.excluded.tipo_inmueble,
-                    "area": stmt.excluded.area,
-                    "estrato": stmt.excluded.estrato,
-                    "comuna": stmt.excluded.comuna,
-                    "barrio": func.coalesce(stmt.excluded.barrio, Inmueble.barrio),
-                    "habitaciones": stmt.excluded.habitaciones,
-                    "banos": stmt.excluded.banos,
-                    "parqueaderos": stmt.excluded.parqueaderos,
-                    "estado": stmt.excluded.estado,
-                    "precio_publicado": stmt.excluded.precio_publicado,
-                    "precio_estimado": stmt.excluded.precio_estimado,
-                    "valor_administracion": stmt.excluded.valor_administracion,
-                    "incluye_administracion": stmt.excluded.incluye_administracion,
-                    "amoblado": stmt.excluded.amoblado,
-                    "imagen_url": func.coalesce(stmt.excluded.imagen_url, Inmueble.imagen_url),
-                    "latitud": func.coalesce(stmt.excluded.latitud, Inmueble.latitud),
-                    "longitud": func.coalesce(stmt.excluded.longitud, Inmueble.longitud),
-                    "antiguedad": func.coalesce(stmt.excluded.antiguedad, Inmueble.antiguedad),
-                    "fecha_extraccion": stmt.excluded.fecha_extraccion,
-                },
+            stmt = pg_insert(Inmueble).values(lote).on_conflict_do_nothing(
+                index_elements=["url_origen"]
             )
             self._db.execute(stmt)
 
         self._db.commit()
-        return insertados, actualizados
+        insertados = len(filas_dict)
+        return insertados, reemplazados_previos

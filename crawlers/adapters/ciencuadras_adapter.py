@@ -17,6 +17,27 @@ class CiencuadrasAdapter(PropertyDataAdapter):
 
     PORTAL_NAME = "ciencuadras"
 
+    @staticmethod
+    def _normalize_image_url(raw_img: object) -> Optional[str]:
+        """Reescribe URLs legadas del bucket S3 bloqueado (www-img-cc.s3.amazonaws.com) al CDN activo."""
+        if not raw_img or not isinstance(raw_img, str):
+            return None
+        url = raw_img.strip()
+        if not url:
+            return None
+        if url.startswith("/"):
+            return f"https://www.ciencuadras.com{url}"
+        url = url.replace(
+            "https://www-img-cc.s3.amazonaws.com/",
+            "https://www.ciencuadras.com/",
+        ).replace(
+            "http://www-img-cc.s3.amazonaws.com/",
+            "https://www.ciencuadras.com/",
+        )
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://") :]
+        return url if url.startswith("https://") else None
+
     def adapt(self, raw_data: dict, search_zone: str = "") -> Optional[PropertyCreate]:
         if not raw_data or not isinstance(raw_data, dict):
             return None
@@ -88,7 +109,7 @@ class CiencuadrasAdapter(PropertyDataAdapter):
                 banos=self.safe_int(raw_data.get("baths")),
                 parqueaderos=self.safe_int(raw_data.get("garages")) or 0,
                 estado=estado,
-                imagen_url=raw_data.get("image"),
+                imagen_url=self._normalize_image_url(raw_data.get("image")),
                 precio_publicado=precio_publicado,
                 url_origen=url_origen,
                 incluye_administracion=(raw_data.get("adminValue", -1) == 0),

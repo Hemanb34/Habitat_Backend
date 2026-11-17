@@ -109,157 +109,25 @@ def verify_db_connection() -> bool:
 
 
 def seed_initial_properties_if_empty(db: Session) -> int:
-    """Sincroniza en PostgreSQL (`habita_db`) el corpus completo (~45.700 inmuebles depurados por RN-06)."""
-    from backend.app.domain.entities.property_entity import Inmueble
-    from backend.app.infrastructure.repositories.property_repository import (
-        PropertyRepository,
+    """Sanea URLs de imágenes legadas de AWS S3 en PostgreSQL sin cargar nunca archivos .csv estáticos.
+
+    El catálogo de `properties` se alimenta y renueva exclusivamente desde los Crawlers (Opción 1A).
+    """
+    result = db.execute(
+        text(
+            """
+            UPDATE properties
+            SET imagen_url = REPLACE(
+                REPLACE(imagen_url, 'https://www-img-cc.s3.amazonaws.com/', 'https://www.ciencuadras.com/'),
+                'http://www-img-cc.s3.amazonaws.com/',
+                'https://www.ciencuadras.com/'
+            )
+            WHERE imagen_url LIKE '%www-img-cc.s3.amazonaws.com%'
+            """
+        )
     )
-
-    existentes: int = db.execute(select(func.count(Inmueble.id))).scalar_one()
-    if existentes >= 40_000:
-        return 0
-
-    frames: list[pd.DataFrame] = []
-    for nombre_portal, nombre_csv in ARCHIVOS_PORTALES:
-        ruta_csv = RAW_CSV_DIR / nombre_csv
-        if not ruta_csv.exists():
-            continue
-        df_portal = pd.read_csv(ruta_csv)
-        df_portal["portal"] = nombre_portal
-        frames.append(df_portal)
-
-    if not frames:
-        return 0
-
-    df = pd.concat(frames, ignore_index=True)
-
-    # 1. Aplicar RN-06: Descartar registros sin url_origen válida y deduplicar por url_origen
-    df["url_origen"] = df["url_origen"].astype(str).str.strip()
-    df = df[
-        df["url_origen"].str.startswith("http://")
-        | df["url_origen"].str.startswith("https://")
-    ].copy()
-    df = df.drop_duplicates(subset=["url_origen"], keep="first")
-
-    # 2. Filtrar nulos críticos y rangos físicos de dominio (sin recortar por comuna)
-    df = df.dropna(
-        subset=["tipo_inmueble", "area", "estrato", "comuna", "precio_publicado"]
-    ).copy()
-    df["comuna_canon"] = df["comuna"].apply(normalizar_comuna_medellin)
-    df = df[df["comuna_canon"].notna()].copy()
-
-    df["area"] = pd.to_numeric(df["area"], errors="coerce")
-    df["estrato"] = pd.to_numeric(df["estrato"], errors="coerce")
-    df["precio_publicado"] = pd.to_numeric(df["precio_publicado"], errors="coerce")
-    df = df[
-        (df["area"] >= 15.0)
-        & (df["area"] <= 500.0)
-        & (df["estrato"] >= 1)
-        & (df["estrato"] <= 6)
-        & (df["precio_publicado"] >= 500_000)
-        & (df["precio_publicado"] <= 15_000_000)
-        & (df["precio_publicado"] != 1_111_111)
-        & (df["precio_publicado"] != 2_222_222)
-    ].reset_index(drop=True)
-
-    # 3. Predecir el canon estimado en bloques de 500 usando ModeloPredictivoService
-    ml_dir = str(PROJECT_ROOT / "ml_service")
-    if ml_dir not in sys.path:
-        sys.path.insert(0, ml_dir)
-
-    from app.boundary.api_router import get_inference_service  # type: ignore[import-not-found]
-    from app.domain.schemas import InmuebleInputSchema  # type: ignore[import-not-found]
-
-    inference_service = get_inference_service()
-    records = df.to_dict(orient="records")
-    inputs_ml: list[InmuebleInputSchema] = []
-
-    for row in records:
-        hab = int(row["habitaciones"]) if pd.notna(row.get("habitaciones")) and int(row["habitaciones"]) > 0 else 1
-        ban = int(row["banos"]) if pd.notna(row.get("banos")) and int(row["banos"]) > 0 else 1
-        parq = int(row["parqueaderos"]) if pd.notna(row.get("parqueaderos")) and int(row["parqueaderos"]) >= 0 else 0
-        lat = float(row["latitud"]) if pd.notna(row.get("latitud")) else None
-        lon = float(row["longitud"]) if pd.notna(row.get("longitud")) else None
-        estado = str(row["estado"]).capitalize() if pd.notna(row.get("estado")) else "Usado"
-        if estado not in ("Usado", "Nuevo"):
-            estado = "Usado"
-        portal_key = (
-            str(row["portal"])
-            .lower()
-            .replace(" ", "")
-            .replace("í", "i")
-        )
-
-        inputs_ml.append(
-            InmuebleInputSchema(
-                comuna=str(row["comuna_canon"]),
-                barrio=None,
-                tipo_inmueble=str(row["tipo_inmueble"]).strip().capitalize(),
-                area=float(row["area"]),
-                habitaciones=hab,
-                banos=ban,
-                parqueaderos=parq,
-                estrato=int(row["estrato"]),
-                estado=estado,
-                incluye_administracion=bool(row.get("incluye_administracion", False)),
-                amoblado=bool(row.get("amoblado", False)),
-                latitud=lat,
-                longitud=lon,
-                portal=portal_key,
-                titulo_o_descripcion=str(row.get("title", "")),
-            )
-        )
-
-    predicciones = []
-    tamano_lote_ml = 2000
-    for idx in range(0, len(inputs_ml), tamano_lote_ml):
-        predicciones.extend(
-            inference_service.predecir_lote(inputs_ml[idx : idx + tamano_lote_ml])
-        )
-
-    entidades: list[Inmueble] = []
-    for row, pred in zip(records, predicciones):
-        precio_pub = round(float(row["precio_publicado"]), 0)
-        precio_est = round(float(pred.precio_estimado_cop), 0)
-        if precio_est <= 0:
-            continue
-
-        hab = int(row["habitaciones"]) if pd.notna(row.get("habitaciones")) and int(row["habitaciones"]) > 0 else 1
-        ban = int(row["banos"]) if pd.notna(row.get("banos")) and int(row["banos"]) > 0 else 1
-        parq = int(row["parqueaderos"]) if pd.notna(row.get("parqueaderos")) and int(row["parqueaderos"]) >= 0 else 0
-        img_raw = str(row.get("imagen_url", "")).strip()
-        imagen_url = img_raw if img_raw.startswith("http") else None
-        titulo_limpio = str(row.get("title") or f"{row['tipo_inmueble']} en {row['comuna_canon']}").strip()[:300]
-
-        entidades.append(
-            Inmueble(
-                portal=str(row["portal"]),
-                title=titulo_limpio,
-                tipo_inmueble=str(row["tipo_inmueble"]).strip().capitalize(),
-                area=round(float(row["area"]), 1),
-                estrato=int(row["estrato"]),
-                comuna=str(row["comuna_canon"]),
-                barrio=None,
-                habitaciones=hab,
-                banos=ban,
-                parqueaderos=parq,
-                estado=str(row.get("estado", "Usado")).strip()[:40],
-                precio_publicado=precio_pub,
-                precio_estimado=precio_est,
-                valor_administracion=None,
-                incluye_administracion=bool(row.get("incluye_administracion", False)),
-                amoblado=bool(row.get("amoblado", False)),
-                imagen_url=imagen_url,
-                url_origen=str(row["url_origen"]).strip(),
-                latitud=float(row["latitud"]) if pd.notna(row.get("latitud")) else None,
-                longitud=float(row["longitud"]) if pd.notna(row.get("longitud")) else None,
-                antiguedad=None,
-            )
-        )
-
-    repo = PropertyRepository(db)
-    insertados, actualizados = repo.upsert_lote_propiedades(entidades)
-    return insertados + actualizados
+    db.commit()
+    return int(result.rowcount or 0)
 
 
 def seed_initial_admin_if_empty(db: Session) -> None:
