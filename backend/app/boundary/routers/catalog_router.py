@@ -5,7 +5,8 @@ Expone el endpoint `GET /api/v1/properties` consumido por `Arrendatario.tsx` (F5
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app.boundary.dependencies import get_busqueda_control
 from backend.app.controls.busqueda_control import BusquedaControl
@@ -36,10 +37,16 @@ def listar_inmuebles_catalogo(
     control: BusquedaControl = Depends(get_busqueda_control),
 ) -> CatalogResponseSchema:
     """Retorna el catálogo consolidado de inmuebles con precio estimado por IA y URL original (RN-06)."""
-    return control.consultar_catalogo(
-        comuna=comuna,
-        tipo_inmueble=tipo_inmueble,
-        ordenar_por=ordenar_por,
-        limit=limit,
-        offset=offset,
-    )
+    try:
+        return control.consultar_catalogo(
+            comuna=comuna,
+            tipo_inmueble=tipo_inmueble,
+            ordenar_por=ordenar_por,
+            limit=limit,
+            offset=offset,
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servicio de base de datos PostgreSQL temporalmente no disponible (Flujo E1). Intenta reconectar.",
+        ) from exc

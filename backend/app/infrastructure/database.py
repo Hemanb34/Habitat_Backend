@@ -99,10 +99,13 @@ def init_db() -> None:
 
 
 def verify_db_connection() -> bool:
-    """Ejecuta un 'SELECT 1' ligero para comprobar que PostgreSQL responde."""
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
-    return True
+    """Ejecuta un 'SELECT 1' ligero para comprobar que PostgreSQL responde (Flujo E1)."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
 
 
 def seed_initial_properties_if_empty(db: Session) -> int:

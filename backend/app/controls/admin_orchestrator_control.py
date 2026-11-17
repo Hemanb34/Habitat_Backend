@@ -14,6 +14,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime, timezone
 import sys
+import threading
+
+from fastapi import HTTPException, status
 
 from backend.app.domain.config import PROJECT_ROOT
 from backend.app.domain.entities.crawler_job_entity import CrawlerJob
@@ -68,6 +71,10 @@ def _formatear_hace_cuanto(fecha: datetime | None) -> str:
 
 class AdminOrchestratorControl:
     """Orquestador <<control>> de operaciones administrativas (F1, F2, F3 y RNF-09)."""
+
+    # Candados de exclusión mutua para evitar ejecuciones concurrentes (Guarda T-09a / HTTP 409)
+    _crawler_lock = threading.Lock()
+    _retrain_lock = threading.Lock()
 
     def __init__(
         self,
@@ -326,130 +333,171 @@ class AdminOrchestratorControl:
         admin_username: str = "admin",
     ) -> CrawlerRunResponseSchema:
         """Ejecuta `CrawlerOrquestadorControl` (Factory Method + Adapter + RN-06) y persiste todo en PostgreSQL."""
-        if solicitud.portal:
-            clave_limpia = MAPA_CLAVE_PORTAL_CRAWLER.get(
-                solicitud.portal.strip().lower(),
-                solicitud.portal.strip().lower(),
+        if not self._crawler_lock.acquire(blocking=False):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya hay una orquestación de crawlers en ejecución (Guarda T-09a).",
             )
-            portales_objetivo = [clave_limpia]
-        else:
-            portales_objetivo = ["fincaraiz", "metrocuadrado", "ciencuadras"]
 
-        resumen = await self._crawler_orchestrator.ejecutar_extraccion(
-            portals=portales_objetivo,
-            force_refresh_cache=False,
-            max_zones=solicitud.max_zones,
-        )
-
-        # Persistencia real en PostgreSQL de TODOS los inmuebles extraídos
-        insertados, actualizados = self.construir_y_persistir_inmuebles(resumen.items)
-
-        # Registrar cada reporte de portal en `crawler_jobs`, `portals` y `audit_logs` (RNF-09)
-        for rep in resumen.portal_reports:
-            self._audit_repo.actualizar_estado_portal(
-                rep.portal,
-                estado="idle" if rep.status == "SUCCESS" else "error",
-            )
-            self._audit_repo.registrar_crawler_job(
-                CrawlerJob(
-                    portal=rep.portal,
-                    dia_etiqueta="Hoy",
-                    estado=rep.status,
-                    registros_extraidos=rep.raw_extracted,
-                    registros_validos_rn06=rep.valid_unique_items,
-                    duplicados_omitidos=rep.duplicates_removed,
-                    duracion_segundos=rep.elapsed_seconds,
-                    mensaje_error=rep.error_message,
+        try:
+            if solicitud.portal:
+                clave_limpia = MAPA_CLAVE_PORTAL_CRAWLER.get(
+                    solicitud.portal.strip().lower(),
+                    solicitud.portal.strip().lower(),
                 )
-            )
-            self._audit_repo.registrar_log(
-                accion=f"Crawler {MAPA_NOMBRE_PORTAL_UI.get(rep.portal.lower(), rep.portal)} ejecutado",
-                detalle=(
-                    f"Crudos: {rep.raw_extracted} | Válidos RN-06: {rep.valid_unique_items} | "
-                    f"Guardados en BD -> Nuevos: {insertados}, Actualizados: {actualizados} ({rep.elapsed_seconds}s)"
-                ),
-                estado="ok" if rep.status == "SUCCESS" else "warn",
-                usuario=admin_username,
+                portales_objetivo = [clave_limpia]
+            else:
+                portales_objetivo = ["fincaraiz", "metrocuadrado", "ciencuadras"]
+
+            # Transición T-10: Marcar portales en estado "running" en PostgreSQL
+            for clave_portal in portales_objetivo:
+                self._audit_repo.actualizar_estado_portal(clave_portal, estado="running")
+
+            resumen = await self._crawler_orchestrator.ejecutar_extraccion(
+                portals=portales_objetivo,
+                force_refresh_cache=False,
+                max_zones=solicitud.max_zones,
             )
 
-        return CrawlerRunResponseSchema(
-            exito=True,
-            portales_ejecutados=portales_objetivo,
-            registros_extraidos_brutos=resumen.total_raw_extracted,
-            registros_validos_rn06=resumen.total_valid_unique,
-            nuevos_insertados=insertados,
-            actualizados=actualizados,
-            duracion_segundos=resumen.elapsed_seconds,
-            mensaje=(
-                f"Orquestación completada ({resumen.elapsed_seconds}s): "
-                f"{resumen.total_valid_unique} inmuebles validados por RN-06 "
-                f"({insertados} nuevos insertados y {actualizados} actualizados en PostgreSQL)."
-            ),
-        )
+            # Persistencia real en PostgreSQL de TODOS los inmuebles extraídos
+            insertados, actualizados = self.construir_y_persistir_inmuebles(resumen.items)
+
+            # Transiciones T-12 (S10: ExtraccionCompletada) vs T-13 (S11: ExtraccionConError)
+            alguno_exitoso = False
+            for rep in resumen.portal_reports:
+                exito_portal = (rep.status == "SUCCESS") and (rep.valid_unique_items > 0)
+                if exito_portal:
+                    alguno_exitoso = True
+
+                self._audit_repo.actualizar_estado_portal(
+                    rep.portal,
+                    estado="idle" if exito_portal else "error",
+                )
+                self._audit_repo.registrar_crawler_job(
+                    CrawlerJob(
+                        portal=rep.portal,
+                        dia_etiqueta="Hoy",
+                        estado="SUCCESS" if exito_portal else "FAILED",
+                        registros_extraidos=rep.raw_extracted,
+                        registros_validos_rn06=rep.valid_unique_items,
+                        duplicados_omitidos=rep.duplicates_removed,
+                        duracion_segundos=rep.elapsed_seconds,
+                        mensaje_error=rep.error_message
+                        or (None if exito_portal else "0 registros válidos bajo RN-06 (T-13)"),
+                    )
+                )
+                self._audit_repo.registrar_log(
+                    accion=(
+                        f"Crawler {MAPA_NOMBRE_PORTAL_UI.get(rep.portal.lower(), rep.portal)} "
+                        f"{'completado (S10)' if exito_portal else 'con error (S11)'}"
+                    ),
+                    detalle=(
+                        f"Crudos: {rep.raw_extracted} | Válidos RN-06: {rep.valid_unique_items} | "
+                        f"Guardados en BD -> Nuevos: {insertados}, Actualizados: {actualizados} ({rep.elapsed_seconds}s)"
+                        if exito_portal
+                        else f"Extracción fallida o sin registros válidos RN-06: {rep.error_message or '0 registros'}"
+                    ),
+                    estado="ok" if exito_portal else "error",
+                    usuario=admin_username,
+                )
+
+            return CrawlerRunResponseSchema(
+                exito=alguno_exitoso,
+                portales_ejecutados=portales_objetivo,
+                registros_extraidos_brutos=resumen.total_raw_extracted,
+                registros_validos_rn06=resumen.total_valid_unique,
+                nuevos_insertados=insertados,
+                actualizados=actualizados,
+                duracion_segundos=resumen.elapsed_seconds,
+                mensaje=(
+                    f"Orquestación completada ({resumen.elapsed_seconds}s): "
+                    f"{resumen.total_valid_unique} inmuebles validados por RN-06 "
+                    f"({insertados} nuevos insertados y {actualizados} actualizados en PostgreSQL)."
+                    if alguno_exitoso
+                    else "Alerta de extracción (S11 / T-13): No se obtuvieron registros válidos bajo RN-06 o falló la conexión al portal."
+                ),
+            )
+        finally:
+            if self._crawler_lock.locked():
+                self._crawler_lock.release()
 
     def ejecutar_reentrenamiento_ml(
         self,
         admin_username: str = "admin",
     ) -> ModelRetrainResponseSchema:
         """Ejecuta el pipeline Template Method real leyendo de PostgreSQL (RN-02, RN-01 MAPE <= 16%) y registra en BD."""
-        ml_dir = str(PROJECT_ROOT / "ml_service")
-        if ml_dir not in sys.path:
-            sys.path.insert(0, ml_dir)
-        from app.boundary.api_router import (  # type: ignore[import-not-found]
-            get_inference_service,
-            get_retraining_control,
-        )
+        if not self._retrain_lock.acquire(blocking=False):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya hay un proceso de reentrenamiento ML en ejecución.",
+            )
 
-        retraining_ctrl = get_retraining_control()
-        servicio_ml = get_inference_service()
+        try:
+            ml_dir = str(PROJECT_ROOT / "ml_service")
+            if ml_dir not in sys.path:
+                sys.path.insert(0, ml_dir)
+            from app.boundary.api_router import (  # type: ignore[import-not-found]
+                get_inference_service,
+                get_retraining_control,
+            )
 
-        # 1. Ejecutar el ciclo completo (PostgresDatasetRepository -> PreprocesamientoControl -> Template Method)
-        reporte = retraining_ctrl.ejecutar_reentrenamiento()
+            retraining_ctrl = get_retraining_control()
+            servicio_ml = get_inference_service()
 
-        # 2. Si aprobó la compuerta RN-01 (MAPE <= 16%), recargar en caliente el nuevo .joblib en RAM
-        if reporte.promovido_a_produccion:
-            servicio_ml.recargar_modelo_en_caliente()
+            # 1. Ejecutar el ciclo completo (PostgresDatasetRepository -> PreprocesamientoControl -> Template Method)
+            reporte = retraining_ctrl.ejecutar_reentrenamiento()
 
-        mape_pob = float(reporte.mape_poblado)
-        mape_com = float(reporte.mape_otras_comunas)
-        mape_prom = round((mape_pob + mape_com) / 2.0, 4)
-        cumple_rn01 = bool(reporte.promovido_a_produccion)
-        nueva_version_str = reporte.version_modelo
-        total_entrenados = int(reporte.total_registros_entrenamiento)
+            # 2. Si aprobó la compuerta RN-01 (MAPE <= 16%), recargar en caliente el nuevo .joblib en RAM
+            if reporte.promovido_a_produccion:
+                servicio_ml.recargar_modelo_en_caliente()
 
-        nueva_entidad = ModeloPrediccion(
-            version=nueva_version_str,
-            mape_poblado=mape_pob,
-            mape_otras_comunas=mape_com,
-            mape_promedio=mape_prom,
-            registros_entrenamiento=total_entrenados,
-            en_produccion=cumple_rn01,
-        )
-        self._audit_repo.registrar_version_modelo(nueva_entidad)
+            mape_pob = float(reporte.mape_poblado)
+            mape_com = float(reporte.mape_otras_comunas)
+            mape_prom = round((mape_pob + mape_com) / 2.0, 4)
+            cumple_rn01 = bool(reporte.promovido_a_produccion)
+            nueva_version_str = reporte.version_modelo
+            total_entrenados = int(reporte.total_registros_entrenamiento)
 
-        mape_pob_pct = round(mape_pob * 100.0, 2)
-        mape_com_pct = round(mape_com * 100.0, 2)
-        mape_glob_pct = round(mape_prom * 100.0, 2)
+            nueva_entidad = ModeloPrediccion(
+                version=nueva_version_str,
+                mape_poblado=mape_pob,
+                mape_otras_comunas=mape_com,
+                mape_promedio=mape_prom,
+                registros_entrenamiento=total_entrenados,
+                en_produccion=cumple_rn01,
+            )
+            self._audit_repo.registrar_version_modelo(nueva_entidad)
 
-        self._audit_repo.registrar_log(
-            accion="Reentrenamiento ML desde PostgreSQL (Template Method)",
-            detalle=(
-                f"Versión {nueva_version_str} | Registros limpios: {total_entrenados} | "
-                f"MAPE El Poblado: {mape_pob_pct}% | MAPE Otras Comunas: {mape_com_pct}% "
-                f"(RN-01 <= 16% -> {'PROMOVIDO' if cumple_rn01 else 'RECHAZADO'})"
-            ),
-            estado="ok" if cumple_rn01 else "error",
-            usuario=admin_username,
-        )
+            mape_pob_pct = round(mape_pob * 100.0, 2)
+            mape_com_pct = round(mape_com * 100.0, 2)
+            mape_glob_pct = round(mape_prom * 100.0, 2)
 
-        return ModelRetrainResponseSchema(
-            exito=bool(reporte.exito),
-            promovido_a_produccion=cumple_rn01,
-            version_modelo=nueva_version_str,
-            mape_poblado_pct=mape_pob_pct,
-            mape_otras_comunas_pct=mape_com_pct,
-            mape_global_pct=mape_glob_pct,
-            umbral_rn01_pct=round(float(reporte.umbral_rn01_aplicado) * 100.0, 2),
-            total_registros_entrenamiento=total_entrenados,
-            mensaje=reporte.mensaje,
-        )
+            self._audit_repo.registrar_log(
+                accion=(
+                    "Reentrenamiento ML promovido (S15)"
+                    if cumple_rn01
+                    else "Despliegue ML abortado por RN-01 (S16)"
+                ),
+                detalle=(
+                    f"Versión {nueva_version_str} | Registros limpios: {total_entrenados} | "
+                    f"MAPE El Poblado: {mape_pob_pct}% | MAPE Otras Comunas: {mape_com_pct}% "
+                    f"(RN-01 <= 16% -> {'PROMOVIDO' if cumple_rn01 else 'RECHAZADO'})"
+                ),
+                estado="ok" if cumple_rn01 else "error",
+                usuario=admin_username,
+            )
+
+            return ModelRetrainResponseSchema(
+                exito=bool(reporte.exito),
+                promovido_a_produccion=cumple_rn01,
+                version_modelo=nueva_version_str,
+                mape_poblado_pct=mape_pob_pct,
+                mape_otras_comunas_pct=mape_com_pct,
+                mape_global_pct=mape_glob_pct,
+                umbral_rn01_pct=round(float(reporte.umbral_rn01_aplicado) * 100.0, 2),
+                total_registros_entrenamiento=total_entrenados,
+                mensaje=reporte.mensaje,
+            )
+        finally:
+            if self._retrain_lock.locked():
+                self._retrain_lock.release()

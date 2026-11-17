@@ -56,7 +56,17 @@ class AutenticacionControl:
                 detail=detalle_error.model_dump(mode="json"),
             )
 
-        # Caso 2: La cuenta ya se encuentra bloqueada por RN-05 (30 minutos vigentes)
+        # Caso 2: Evaluar bloqueo temporal RN-05 (T-06 si sigue activo | T-07 si ya expiraron los 30 min)
+        if admin.bloqueado_hasta is not None and not admin.esta_bloqueado():
+            admin.resetear_intentos()
+            self._admin_repo.guardar(admin)
+            self._admin_repo.registrar_evento_auditoria(
+                accion="Bloqueo temporal RN-05 expirado (T-07)",
+                detalle=f"Ventana de 30 min cumplida; cuenta '{admin.username}' rehabilitada automáticamente",
+                estado="ok",
+                usuario=admin.username,
+            )
+
         if admin.esta_bloqueado():
             min_restantes = admin.minutos_restantes_bloqueo()
             self._admin_repo.registrar_evento_auditoria(
@@ -156,6 +166,16 @@ class AutenticacionControl:
             rol=admin.rol,
             expires_in_minutes=JWT_EXPIRE_MINUTES,
         )
+
+    def cerrar_sesion_admin(self, username: str = "admin") -> dict[str, str]:
+        """Registra el cierre de sesión administrativo en `audit_logs` (Transición T-20 -> S17)."""
+        self._admin_repo.registrar_evento_auditoria(
+            accion="Cierre de sesión administrativo (S17)",
+            detalle=f"Sesión JWT finalizada explícitamente por '{username}'",
+            estado="ok",
+            usuario=username,
+        )
+        return {"status": "logged_out", "username": username}
 
     def desbloquear_cuenta_desarrollo(self, username: str = "admin") -> dict[str, str]:
         """Permite restablecer en BD el bloqueo de 30 min durante pruebas académicas."""

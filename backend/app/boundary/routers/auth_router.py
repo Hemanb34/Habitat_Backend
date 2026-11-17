@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from backend.app.boundary.dependencies import get_autenticacion_control
+from backend.app.boundary.dependencies import (
+    get_autenticacion_control,
+    get_current_admin,
+)
 from backend.app.controls.autenticacion_control import AutenticacionControl
 from backend.app.domain.schemas.auth_schemas import (
     LoginRequestSchema,
@@ -26,6 +29,15 @@ def login_administrador(
 ) -> TokenResponseSchema:
     """Autentica al administrador con Bcrypt + JWT o bloquea por 30 min al 3.er fallo (RN-05)."""
     return control.autenticar_admin(payload)
+
+
+@router.post("/logout")
+def logout_administrador(
+    admin_user: str = Depends(get_current_admin),
+    control: AutenticacionControl = Depends(get_autenticacion_control),
+) -> dict[str, str]:
+    """Registra en `audit_logs` el cierre de sesión administrativo (Transición T-20 -> S17)."""
+    return control.cerrar_sesion_admin(admin_user)
 
 
 @router.post("/unlock")

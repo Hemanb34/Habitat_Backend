@@ -6,8 +6,10 @@ y expone los routers de negocio bajo el prefijo /api/v1.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,17 +18,61 @@ from backend.app.boundary.routers.admin_router import router as admin_router
 from backend.app.boundary.routers.auth_router import router as auth_router
 from backend.app.boundary.routers.catalog_router import router as catalog_router
 from backend.app.boundary.routers.valuation_router import router as valuation_router
+from backend.app.controls.admin_orchestrator_control import AdminOrchestratorControl
 from backend.app.domain.config import CORS_ORIGINS, DB_NAME
-from backend.app.infrastructure.database import init_db, verify_db_connection
+from backend.app.domain.schemas.admin_schemas import CrawlerRunRequestSchema
+from backend.app.infrastructure.database import (
+    SessionLocal,
+    init_db,
+    verify_db_connection,
+)
 from backend.app.infrastructure.ml_service_client import MLServiceClient
+from backend.app.infrastructure.repositories.audit_repository import AuditRepository
+from backend.app.infrastructure.repositories.property_repository import (
+    PropertyRepository,
+)
+
+logger = logging.getLogger(__name__)
+CRAWLER_SCHEDULE_SECONDS = 24 * 60 * 60  # 24 horas (Transición T-09b / RNF-03)
+
+
+async def _scheduler_extraccion_24h() -> None:
+    """Ejecuta periódicamente cada 24 horas la extracción automática de crawlers (T-09b / RNF-03)."""
+    while True:
+        await asyncio.sleep(CRAWLER_SCHEDULE_SECONDS)
+        try:
+            with SessionLocal() as db:
+                control = AdminOrchestratorControl(
+                    property_repo=PropertyRepository(db),
+                    audit_repo=AuditRepository(db),
+                )
+                await control.ejecutar_crawlers(
+                    CrawlerRunRequestSchema(portal=None),
+                    admin_username="scheduler_24h",
+                )
+        except Exception as exc:
+            logger.error("Error en ejecución programada 24h de crawlers (T-09b): %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Inicializa el esquema de base de datos y precarga en RAM el modelo ML de respaldo."""
-    init_db()
+    """Inicializa el esquema de BD (resiliente ante Flujo E1), precarga el modelo ML en RAM y activa el Scheduler 24h (RNF-03)."""
+    try:
+        init_db()
+    except Exception as exc:
+        logger.warning(
+            "PostgreSQL aún no está disponible al iniciar (Flujo E1): %s. "
+            "El servidor FastAPI iniciará y reconectará automáticamente cuando el contenedor esté activo.",
+            exc,
+        )
     MLServiceClient.precargar_modelo_respaldo()
-    yield
+    scheduler_task = asyncio.create_task(_scheduler_extraccion_24h())
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await scheduler_task
 
 
 app = FastAPI(
